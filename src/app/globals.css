@@ -5,22 +5,134 @@
   --foreground: #171717;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* Custom elegant-red color utilities */
+.bg-elegant-red-50 { background-color: #fef2f2; }
+.bg-elegant-red-100 { background-color: #fee2e2; }
+.bg-elegant-red-200 { background-color: #fecaca; }
+.bg-elegant-red-300 { background-color: #fca5a5; }
+.bg-elegant-red-400 { background-color: #f87171; }
+.bg-elegant-red-500 { background-color: #ef4444; }
+.bg-elegant-red-600 { background-color: #dc2626; }
+.bg-elegant-red-700 { background-color: #b91c1c; }
+.bg-elegant-red-800 { background-color: #991b1b; }
+.bg-elegant-red-900 { background-color: #7f1d1d; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+.text-elegant-red-50 { color: #fef2f2; }
+.text-elegant-red-100 { color: #fee2e2; }
+.text-elegant-red-200 { color: #fecaca; }
+.text-elegant-red-300 { color: #fca5a5; }
+.text-elegant-red-400 { color: #f87171; }
+.text-elegant-red-500 { color: #ef4444; }
+.text-elegant-red-600 { color: #dc2626; }
+.text-elegant-red-700 { color: #b91c1c; }
+.text-elegant-red-800 { color: #991b1b; }
+.text-elegant-red-900 { color: #7f1d1d; }
+
+.border-elegant-red-50 { border-color: #fef2f2; }
+.border-elegant-red-100 { border-color: #fee2e2; }
+.border-elegant-red-200 { border-color: #fecaca; }
+.border-elegant-red-300 { border-color: #fca5a5; }
+.border-elegant-red-400 { border-color: #f87171; }
+.border-elegant-red-500 { border-color: #ef4444; }
+.border-elegant-red-600 { border-color: #dc2626; }
+.border-elegant-red-700 { border-color: #b91c1c; }
+.border-elegant-red-800 { border-color: #991b1b; }
+.border-elegant-red-900 { border-color: #7f1d1d; }
+
+/* Hover states */
+.hover\:bg-elegant-red-50:hover { background-color: #fef2f2; }
+.hover\:bg-elegant-red-100:hover { background-color: #fee2e2; }
+.hover\:bg-elegant-red-200:hover { background-color: #fecaca; }
+.hover\:bg-elegant-red-300:hover { background-color: #fca5a5; }
+.hover\:bg-elegant-red-400:hover { background-color: #f87171; }
+.hover\:bg-elegant-red-500:hover { background-color: #ef4444; }
+.hover\:bg-elegant-red-600:hover { background-color: #dc2626; }
+.hover\:bg-elegant-red-700:hover { background-color: #b91c1c; }
+.hover\:bg-elegant-red-800:hover { background-color: #991b1b; }
+.hover\:bg-elegant-red-900:hover { background-color: #7f1d1d; }
+
+.hover\:text-elegant-red-50:hover { color: #fef2f2; }
+.hover\:text-elegant-red-100:hover { color: #fee2e2; }
+.hover\:text-elegant-red-200:hover { color: #fecaca; }
+.hover\:text-elegant-red-300:hover { color: #fca5a5; }
+.hover\:text-elegant-red-400:hover { color: #f87171; }
+.hover\:text-elegant-red-500:hover { color: #ef4444; }
+.hover\:text-elegant-red-600:hover { color: #dc2626; }
+.hover\:text-elegant-red-700:hover { color: #b91c1c; }
+.hover\:text-elegant-red-800:hover { color: #991b1b; }
+.hover\:text-elegant-red-900:hover { color: #7f1d1d; }
+
+/* Removed dark mode media query to prevent text color conflicts with Tailwind */
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Smooth scrolling for better UX */
+html {
+  scroll-behavior: auto; /* Changed from smooth to auto to prevent unwanted scrolling */
+}
+
+/* Prevent focus from causing unwanted scrolling */
+button:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  scroll-margin: 0; /* Prevent scroll-into-view behavior */
+}
+
+/* Prevent layout shifts when cart items are added/removed */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms; /* Faster transitions */
+}
+
+/* Prevent automatic scrolling to new content */
+* {
+  scroll-margin-top: 0;
+  scroll-margin-bottom: 0;
+}
+
+/* Toast notification animations */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.animate-slide-out-right {
+  animation: slide-out-right 0.3s ease-in forwards;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }

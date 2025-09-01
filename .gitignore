@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Firebase service account keys (CRITICAL - Never commit these!)
+*-firebase-adminsdk*.json
+al-sabil-ordeing-app-firebase-adminsdk.json
+config/firebase-admin-key.json
+config/*firebase*key*.json
