@@ -15,70 +15,44 @@ if (getApps().length === 0) {
   try {
     console.log('🔧 Initializing Firebase Admin...');
     
-    // Option 1: Using service account file path (recommended for development)
+    // Check for required environment variables
+    if (!process.env.FIREBASE_ADMIN_PROJECT_ID) {
+      throw new Error('FIREBASE_ADMIN_PROJECT_ID environment variable is required');
+    }
+
+    // Option 1: Using service account file path (for development only)
     const keyPath = process.env.FIREBASE_ADMIN_KEY_PATH;
     if (keyPath && fs.existsSync(keyPath)) {
-      console.log('📁 Using service account file:', keyPath);
+      console.log('📁 Using service account file');
       adminApp = initializeApp({
         credential: cert(keyPath),
-        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
       });
     }
-    // Option 2: Using environment variables
+    // Option 2: Using environment variables (recommended for production)
     else if (process.env.FIREBASE_ADMIN_PRIVATE_KEY && process.env.FIREBASE_ADMIN_CLIENT_EMAIL) {
       console.log('🔑 Using environment variables for service account');
       const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY.replace(/\\n/g, '\n');
       
       adminApp = initializeApp({
         credential: cert({
-          projectId: process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+          projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
           clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
           privateKey: privateKey,
         }),
-        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
       });
     }
-    // Option 3: Try alternative file paths
     else {
-      const alternativePaths = [
-        './config/firebase-admin-key.json',
-  // Guard use of process.cwd() in case of accidental Edge bundling
-  (typeof process !== 'undefined' ? path.join(process.cwd(), 'config/firebase-admin-key.json') : ''),
-  (typeof process !== 'undefined' ? path.join(process.cwd(), 'al-sabil-ordeing-app-firebase-adminsdk.json') : ''),
-      ];
-      
-      let foundFile = null;
-      for (const filePath of alternativePaths) {
-        if (fs.existsSync(filePath)) {
-          foundFile = filePath;
-          break;
-        }
-      }
-      
-      if (foundFile) {
-        console.log('📁 Using service account file found at:', foundFile);
-        adminApp = initializeApp({
-          credential: cert(foundFile),
-          projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-        });
-      } else {
-        throw new Error(`
-Firebase Admin credentials not found. Please ensure one of the following:
+      throw new Error(`
+Firebase Admin credentials not found. Please set environment variables:
+- FIREBASE_ADMIN_PROJECT_ID
+- FIREBASE_ADMIN_CLIENT_EMAIL  
+- FIREBASE_ADMIN_PRIVATE_KEY
 
-1. Set environment variables:
-   - FIREBASE_ADMIN_PROJECT_ID
-   - FIREBASE_ADMIN_CLIENT_EMAIL  
-   - FIREBASE_ADMIN_PRIVATE_KEY
-
-2. Set file path:
-   - FIREBASE_ADMIN_KEY_PATH
-
-3. Place service account file at:
-   - ./config/firebase-admin-key.json
-
-Available files: ${alternativePaths.map(p => `${p} (${fs.existsSync(p) ? 'EXISTS' : 'NOT FOUND'})`).join(', ')}
+For development, you can alternatively set:
+- FIREBASE_ADMIN_KEY_PATH (path to service account file)
         `);
-      }
     }
     
     console.log('✅ Firebase Admin initialized successfully');
