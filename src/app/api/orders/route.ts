@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { Order, OrderItem } from '@/types/cart';
 import { Query, DocumentData } from 'firebase-admin/firestore';
-import { broadcastNotification } from '../notifications/sse/route';
+import { notificationManager } from '@/lib/notifications';
 
 export async function GET(request: NextRequest) {
   try {
@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
     // Send real-time notifications
     try {
       // Notify seller about new order
-      broadcastNotification({
+      notificationManager.broadcastNotification({
         type: 'order_created',
         orderId: orderRef.id,
         orderNumber: `#${orderRef.id.slice(-6).toUpperCase()}`,
@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Notify customer about order confirmation
-      broadcastNotification({
+      notificationManager.broadcastNotification({
         type: 'order_created',
         orderId: orderRef.id,
         orderNumber: `#${orderRef.id.slice(-6).toUpperCase()}`,

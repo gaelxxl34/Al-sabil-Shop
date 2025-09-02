@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { Order, PaymentRecord } from '@/types/cart';
-import { broadcastNotification } from '../../notifications/sse/route';
+import { notificationManager } from '@/lib/notifications';
 
 export async function GET(
   request: NextRequest,
@@ -199,7 +199,7 @@ export async function PUT(
 
       // Notify customer about status changes
       if (status && status !== existingOrder.status) {
-        broadcastNotification({
+        notificationManager.broadcastNotification({
           type: 'order_updated',
           orderId,
           orderNumber: `#${orderId.slice(-6).toUpperCase()}`,
@@ -215,7 +215,7 @@ export async function PUT(
 
       // Notify customer about payment updates
       if (paymentAmount && paymentAmount > 0) {
-        broadcastNotification({
+        notificationManager.broadcastNotification({
           type: 'payment_updated',
           orderId,
           orderNumber: `#${orderId.slice(-6).toUpperCase()}`,
@@ -231,7 +231,7 @@ export async function PUT(
 
       // Notify customer about payment status changes (if not from payment recording)
       if (paymentStatus && paymentStatus !== existingOrder.paymentStatus && !paymentAmount) {
-        broadcastNotification({
+        notificationManager.broadcastNotification({
           type: 'payment_updated',
           orderId,
           orderNumber: `#${orderId.slice(-6).toUpperCase()}`,

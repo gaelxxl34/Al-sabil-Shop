@@ -1,13 +1,7 @@
 // src/app/api/notifications/sse/route.ts
 import { NextRequest } from 'next/server';
 import { adminAuth } from '@/lib/firebase-admin';
-
-// Store active connections
-const connections = new Map<string, {
-  controller: ReadableStreamDefaultController;
-  userId: string;
-  userRole: string;
-}>();
+import { notificationManager } from '@/lib/notifications';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -40,13 +34,11 @@ export async function GET(request: NextRequest) {
     start(controller) {
       // Store connection
       const connectionId = `${userId}_${Date.now()}`;
-      connections.set(connectionId, {
+      notificationManager.addConnection(connectionId, {
         controller,
         userId,
         userRole,
       });
-
-      console.log(`SSE: Client connected - ${connectionId} (${userRole})`);
 
       // Send initial connection message
       const data = JSON.stringify({
@@ -61,10 +53,10 @@ export async function GET(request: NextRequest) {
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
-        } catch (error) {
+        } catch {
           console.log(`SSE: Heartbeat failed for ${connectionId}, cleaning up`);
           clearInterval(heartbeat);
-          connections.delete(connectionId);
+          notificationManager.removeConnection(connectionId);
         }
       }, 30000); // Send heartbeat every 30 seconds
 
@@ -72,10 +64,10 @@ export async function GET(request: NextRequest) {
       request.signal.addEventListener('abort', () => {
         console.log(`SSE: Client disconnected - ${connectionId}`);
         clearInterval(heartbeat);
-        connections.delete(connectionId);
+        notificationManager.removeConnection(connectionId);
         try {
           controller.close();
-        } catch (error) {
+        } catch {
           // Controller already closed
         }
       });
@@ -93,46 +85,3 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// Helper function to broadcast notifications to specific users
-export function broadcastNotification(notification: {
-  type: string;
-  orderId: string;
-  orderNumber?: string;
-  customerName?: string;
-  sellerName?: string;
-  firstItemName?: string;
-  status?: string;
-  paymentStatus?: string;
-  message: string;
-  targetUserId?: string;
-  targetRole?: string;
-}) {
-  const data = JSON.stringify({
-    ...notification,
-    timestamp: new Date().toISOString(),
-  });
-
-  let sentCount = 0;
-
-  connections.forEach((connection, connectionId) => {
-    // Send to specific user if targetUserId is specified
-    if (notification.targetUserId && connection.userId !== notification.targetUserId) {
-      return;
-    }
-
-    // Send to specific role if targetRole is specified
-    if (notification.targetRole && connection.userRole !== notification.targetRole) {
-      return;
-    }
-
-    try {
-      connection.controller.enqueue(`data: ${data}\n\n`);
-      sentCount++;
-    } catch (error) {
-      console.error(`SSE: Failed to send notification to ${connectionId}:`, error);
-      connections.delete(connectionId);
-    }
-  });
-
-  console.log(`SSE: Notification sent to ${sentCount} connections:`, notification.type);
-}
