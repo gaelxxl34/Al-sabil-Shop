@@ -4,8 +4,8 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { useToast } from './ToastContext';
 
 export interface NotificationData {
-  type: 'order_created' | 'order_updated' | 'order_cancelled' | 'payment_updated';
-  orderId: string;
+  type: 'order_created' | 'order_updated' | 'order_cancelled' | 'payment_updated' | 'heartbeat' | 'connection';
+  orderId?: string;
   orderNumber?: string;
   customerName?: string;
   sellerName?: string;
@@ -18,6 +18,8 @@ export interface NotificationData {
 
 interface NotificationContextValue {
   isConnected: boolean;
+  isReconnecting: boolean;
+  reconnectAttempts: number;
   reconnect: () => void;
   registerRefreshCallback: (callback: () => void) => () => void;
 }
@@ -46,6 +48,8 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [refreshCallbacks, setRefreshCallbacks] = useState<Set<() => void>>(new Set());
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const { showToast } = useToast();
 
   const registerRefreshCallback = (callback: () => void) => {
@@ -77,24 +81,43 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       return;
     }
 
+    // Don't attempt connection if already reconnecting
+    if (isReconnecting) {
+      return;
+    }
+
+    // Check if we're offline
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.log('SSE: Offline, will retry when online');
+      return;
+    }
+
     if (eventSource) {
       eventSource.close();
     }
 
-    console.log('SSE: Connecting to notifications...', { userId, userRole });
+    console.log('SSE: Connecting to notifications...', { userId, userRole, attempt: reconnectAttempts + 1 });
+    setIsReconnecting(true);
 
     const es = new EventSource(`/api/notifications/sse?userId=${userId}&role=${userRole}`);
     
     es.onopen = () => {
       console.log('SSE: Connected to notifications');
       setIsConnected(true);
+      setIsReconnecting(false);
+      setReconnectAttempts(0); // Reset attempts on successful connection
     };
 
     es.onmessage = (event) => {
       try {
         const notification: NotificationData = JSON.parse(event.data);
-        console.log('SSE: Received notification:', notification);
         
+        // Skip heartbeat messages
+        if (notification.type === 'heartbeat' || notification.type === 'connection') {
+          return;
+        }
+        
+        console.log('SSE: Received notification:', notification);
         handleNotification(notification);
       } catch (error) {
         console.error('SSE: Error parsing notification:', error);
@@ -102,21 +125,54 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     };
 
     es.onerror = (error) => {
-      console.error('SSE: Connection error:', error);
       setIsConnected(false);
+      setIsReconnecting(false);
       
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => {
-        if (es.readyState === EventSource.CLOSED) {
-          connect();
+      // Only log meaningful errors
+      if (es.readyState === EventSource.CONNECTING) {
+        // Connection is being established, this is normal
+        console.log('SSE: Connecting...');
+      } else if (es.readyState === EventSource.CLOSED) {
+        // Connection was closed
+        console.log('SSE: Connection closed, will attempt to reconnect');
+        
+        // Implement exponential backoff for reconnection
+        const maxAttempts = 5;
+        const baseDelay = 2000; // Start with 2 seconds
+        
+        if (reconnectAttempts < maxAttempts) {
+          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts), 30000); // Max 30 seconds
+          
+          setTimeout(() => {
+            if (es.readyState === EventSource.CLOSED) {
+              setReconnectAttempts(prev => prev + 1);
+              connect();
+            }
+          }, delay);
+        } else {
+          console.warn('SSE: Max reconnection attempts reached. Please refresh the page.');
+          // Optionally show a user-friendly message
+          showToast({
+            type: 'warning',
+            title: 'Connection Issue',
+            message: 'Real-time notifications are temporarily unavailable. Please refresh the page.',
+          });
         }
-      }, 5000);
+      } else {
+        // Unexpected error
+        console.error('SSE: Unexpected connection error:', error);
+      }
     };
 
     setEventSource(es);
   };
 
   const handleNotification = (notification: NotificationData) => {
+    // Skip system messages
+    if (notification.type === 'heartbeat' || notification.type === 'connection') {
+      return;
+    }
+
     const getToastConfig = () => {
       switch (notification.type) {
         case 'order_created':
@@ -206,8 +262,38 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
   };
 
   const reconnect = () => {
+    setReconnectAttempts(0); // Reset attempts for manual reconnection
     connect();
   };
+
+  // Handle network state changes
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('SSE: Network is back online, attempting to reconnect');
+      if (!isConnected && userId && userRole) {
+        setReconnectAttempts(0);
+        connect();
+      }
+    };
+
+    const handleOffline = () => {
+      console.log('SSE: Network is offline');
+      if (eventSource) {
+        eventSource.close();
+      }
+      setIsConnected(false);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, [isConnected, userId, userRole, eventSource]);
 
   useEffect(() => {
     if (userId && userRole) {
@@ -220,10 +306,17 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
         eventSource.close();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, userRole]);
 
   return (
-    <NotificationContext.Provider value={{ isConnected, reconnect, registerRefreshCallback }}>
+    <NotificationContext.Provider value={{ 
+      isConnected, 
+      isReconnecting, 
+      reconnectAttempts, 
+      reconnect, 
+      registerRefreshCallback 
+    }}>
       {children}
     </NotificationContext.Provider>
   );

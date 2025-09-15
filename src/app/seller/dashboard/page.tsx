@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { FiUsers, FiBox, FiClock, FiCheckCircle } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
+import SellerGuard from "@/components/SellerGuard";
 import { 
   SkeletonDashboardCards, 
   SkeletonTable 
@@ -102,6 +103,7 @@ export default function SellerDashboard() {
 	// or navigate away and back to see updates
 	
 	return (
+		<SellerGuard>
 		<div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
 			{/* Sidebar */}
 			<div className="hidden md:flex">
@@ -248,5 +250,6 @@ export default function SellerDashboard() {
 				</section>
 			</main>
 		</div>
+		</SellerGuard>
 	);
 }

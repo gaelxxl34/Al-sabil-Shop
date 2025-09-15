@@ -7,19 +7,28 @@ export async function GET(request: NextRequest) {
     const sessionCookie = request.cookies.get('session');
     if (!sessionCookie?.value) {
       console.log('❌ Session API: No session cookie found');
-      return NextResponse.json({ authenticated: false }, { status: 401 });
+      return NextResponse.json({ authenticated: false, error: 'No session found' }, { status: 401 });
     }
 
     console.log('🍪 Session API: Session cookie found, verifying...');
-    // Verify session cookie (does not require extra DB call unless we want user doc)
+    // Verify session cookie with checkRevoked=true to ensure token is still valid
     const decoded = await adminAuth.verifySessionCookie(sessionCookie.value, true);
     console.log('✅ Session API: Session cookie verified for user:', decoded.email);
 
-    // Fetch Firestore profile (optional enrichment)
+    // Fetch Firestore profile for role validation
     const userRef = adminDb.collection('users').doc(decoded.uid);
     const userDoc = await userRef.get();
-    const userData = userDoc.exists ? userDoc.data() : null;
     
+    if (!userDoc.exists) {
+      console.log('❌ Session API: User document not found in Firestore');
+      // Clear invalid session
+      const response = NextResponse.json({ authenticated: false, error: 'User not found' }, { status: 401 });
+      response.cookies.delete('session');
+      response.cookies.delete('user-role');
+      return response;
+    }
+    
+    const userData = userDoc.data();
     console.log('📊 Session API: User data from Firestore:', {
       exists: userDoc.exists,
       role: userData?.role,
@@ -29,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     if (userData && userData.isActive === false) {
       console.log('❌ Session API: User account is inactive');
-      const response = NextResponse.json({ authenticated: false, error: 'User inactive' }, { status: 401 });
+      const response = NextResponse.json({ authenticated: false, error: 'Account inactive' }, { status: 401 });
       response.cookies.delete('session');
       response.cookies.delete('user-role');
       return response;
@@ -58,11 +67,15 @@ export async function GET(request: NextRequest) {
     console.log('✅ Session API: Returning success response:', responseData);
     return NextResponse.json(responseData);
   } catch (error: unknown) {
-    console.error('Session validation error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Session validation failed';
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
+    console.error('❌ Session validation error:', error);
+    
+    // Clear cookies on any session validation error
+    const response = NextResponse.json(
+      { authenticated: false, error: 'Session validation failed' },
+      { status: 401 }
     );
+    response.cookies.delete('session');
+    response.cookies.delete('user-role');
+    return response;
   }
 }

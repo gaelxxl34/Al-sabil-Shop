@@ -55,14 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const sessionData = await response.json();
         console.log('📊 AuthProvider: Session response:', sessionData);
-        if (sessionData.user) {
+        if (sessionData.authenticated && sessionData.user) {
           console.log('✅ AuthProvider: Session found for user:', sessionData.user.email, 'role:', sessionData.userData?.role);
           setUser({ uid: sessionData.user.uid, email: sessionData.user.email });
           setUserData(sessionData.userData);
+          setError(null); // Clear any previous errors
         } else {
           console.log('❌ AuthProvider: No valid session found');
           setUser(null);
           setUserData(null);
+          // Don't set error for normal unauthenticated state
         }
       } else {
         console.log('❌ AuthProvider: Session check failed with status:', response.status);
@@ -70,6 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('❌ AuthProvider: Error details:', errorData);
         setUser(null);
         setUserData(null);
+        
+        // Only set error for actual server errors, not authentication failures
+        if (response.status >= 500) {
+          setError('Server error during authentication check');
+        }
       }
     } catch (err) {
       console.error('❌ AuthProvider: Session check error:', err);
@@ -101,25 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Initial session check
     checkSession(true); // Force initial check
 
-    // Auto-refresh session every 24 hours to maintain "forever" login
-    if (!refreshIntervalRef.current) {
-      refreshIntervalRef.current = setInterval(async () => {
-        try {
-          console.log('🔄 AuthProvider: Refreshing session...');
-          const response = await fetch('/api/auth/refresh', { 
-            method: 'POST',
-            credentials: 'include'
-          });
-          if (response.ok) {
-            console.log('✅ AuthProvider: Session refreshed successfully');
-          } else {
-            console.warn('⚠️ AuthProvider: Session refresh failed');
-          }
-        } catch (err) {
-          console.error('❌ AuthProvider: Session refresh error:', err);
-        }
-      }, 24 * 60 * 60 * 1000); // Refresh every 24 hours
-    }
+    // NOTE: Firebase session cookies are long-lived (14 days)
+    // No need for refresh tokens - users will need to re-login after expiry
 
     // Cleanup interval on unmount
     return () => {
