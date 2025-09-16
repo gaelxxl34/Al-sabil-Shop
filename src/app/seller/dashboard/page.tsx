@@ -13,6 +13,9 @@ import {
   SkeletonDashboardCards, 
   SkeletonTable 
 } from "@/components/SkeletonLoader";
+import { Customer } from "@/types/customer";
+import { Product } from "@/types/product";
+import { Order } from "@/types/cart";
 
 // Brand-aligned color palette (Black + Red from logo)
 const BUTTON_PRIMARY = "bg-blue-600 hover:bg-blue-700 text-white shadow-lg";
@@ -20,84 +23,156 @@ const BUTTON_OUTLINE = "border-2 border-red-700 text-red-700 bg-white hover:bg-r
 const STATUS_PENDING = "bg-red-100 text-red-700 border border-red-200";
 const STATUS_COMPLETED = "bg-green-100 text-green-700 border border-green-200";
 
-const summaryCards = [
-	{
-		label: "Customers",
-		value: 12,
-		href: "/seller/users",
-		icon: <FiUsers className="w-7 h-7 text-blue-600" />,
-		iconBg: "bg-blue-50 border border-blue-100",
-		cardBg: "bg-white border-l-4 border-blue-500",
-	},
-	{
-		label: "Products",
-		value: 34,
-		href: "/seller/products",
-		icon: <FiBox className="w-7 h-7 text-amber-600" />,
-		iconBg: "bg-amber-50 border border-amber-100",
-		cardBg: "bg-white border-l-4 border-amber-500",
-	},
-	{
-		label: "Pending Orders",
-		value: 5,
-		href: "/seller/orders?status=pending",
-		icon: <FiClock className="w-7 h-7 text-red-700" />,
-		iconBg: "bg-red-50 border border-red-100",
-		cardBg: "bg-white border-l-4 border-red-700",
-	},
-	{
-		label: "Completed Orders",
-		value: 27,
-		href: "/seller/orders?status=completed",
-		icon: <FiCheckCircle className="w-7 h-7 text-green-600" />,
-		iconBg: "bg-green-50 border border-green-100",
-		cardBg: "bg-white border-l-4 border-green-500",
-	},
-];
+interface DashboardData {
+  customers: Customer[];
+  products: Product[];
+  orders: Order[];
+}
 
-const recentOrders = [
-	{
-		id: "ORD-0012",
-		customer: "Ali Store",
-		date: "2025-07-05",
-		status: "Pending",
-		total: "$120.00",
-	},
-	{
-		id: "ORD-0011",
-		customer: "Yusuf Mart",
-		date: "2025-07-04",
-		status: "Completed",
-		total: "$340.00",
-	},
-	{
-		id: "ORD-0010",
-		customer: "Fatima Shop",
-		date: "2025-07-03",
-		status: "Pending",
-		total: "$80.00",
-	},
-	{
-		id: "ORD-0009",
-		customer: "Omar Supplies",
-		date: "2025-07-02",
-		status: "Completed",
-		total: "$210.00",
-	},
-];
+interface DashboardStats {
+  customersCount: number;
+  productsCount: number;
+  pendingOrdersCount: number;
+  completedOrdersCount: number;
+}
 
 export default function SellerDashboard() {
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
-	
-	// Simulating data loading
+	const [error, setError] = useState<string | null>(null);
+	const [dashboardData, setDashboardData] = useState<DashboardData>({
+		customers: [],
+		products: [],
+		orders: []
+	});
+	const [stats, setStats] = useState<DashboardStats>({
+		customersCount: 0,
+		productsCount: 0,
+		pendingOrdersCount: 0,
+		completedOrdersCount: 0
+	});
+
+	// Fetch dashboard data
 	useEffect(() => {
-		const timer = setTimeout(() => {
-			setIsLoading(false);
-		}, 1000);
-		
-		return () => clearTimeout(timer);
+		const fetchDashboardData = async () => {
+			try {
+				setIsLoading(true);
+				setError(null);
+
+				// Fetch data from all endpoints in parallel
+				const [customersRes, productsRes, ordersRes] = await Promise.all([
+					fetch('/api/customers'),
+					fetch('/api/products'),
+					fetch('/api/orders')
+				]);
+
+				// Check for errors
+				if (!customersRes.ok) {
+					throw new Error(`Failed to fetch customers: ${customersRes.status}`);
+				}
+				if (!productsRes.ok) {
+					throw new Error(`Failed to fetch products: ${productsRes.status}`);
+				}
+				if (!ordersRes.ok) {
+					throw new Error(`Failed to fetch orders: ${ordersRes.status}`);
+				}
+
+				// Parse responses
+				const [customersData, productsData, ordersData] = await Promise.all([
+					customersRes.json(),
+					productsRes.json(),
+					ordersRes.json()
+				]);
+
+				const customers = customersData.data || [];
+				const products = productsData.data || [];
+				const orders = ordersData.data || [];
+
+				// Update dashboard data
+				setDashboardData({
+					customers,
+					products,
+					orders
+				});
+
+				// Calculate stats
+				const pendingOrders = orders.filter((order: Order) => 
+					order.status === 'pending' || order.status === 'confirmed' || order.status === 'prepared'
+				);
+				const completedOrders = orders.filter((order: Order) => 
+					order.status === 'delivered'
+				);
+
+				setStats({
+					customersCount: customers.length,
+					productsCount: products.length,
+					pendingOrdersCount: pendingOrders.length,
+					completedOrdersCount: completedOrders.length
+				});
+
+			} catch (err) {
+				console.error('Error fetching dashboard data:', err);
+				setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchDashboardData();
 	}, []);
+
+	// Create summary cards with real data
+	const summaryCards = [
+		{
+			label: "Customers",
+			value: stats.customersCount,
+			href: "/seller/users",
+			icon: <FiUsers className="w-7 h-7 text-blue-600" />,
+			iconBg: "bg-blue-50 border border-blue-100",
+			cardBg: "bg-white border-l-4 border-blue-500",
+		},
+		{
+			label: "Products",
+			value: stats.productsCount,
+			href: "/seller/products",
+			icon: <FiBox className="w-7 h-7 text-amber-600" />,
+			iconBg: "bg-amber-50 border border-amber-100",
+			cardBg: "bg-white border-l-4 border-amber-500",
+		},
+		{
+			label: "Pending Orders",
+			value: stats.pendingOrdersCount,
+			href: "/seller/orders?status=pending",
+			icon: <FiClock className="w-7 h-7 text-red-700" />,
+			iconBg: "bg-red-50 border border-red-100",
+			cardBg: "bg-white border-l-4 border-red-700",
+		},
+		{
+			label: "Completed Orders",
+			value: stats.completedOrdersCount,
+			href: "/seller/orders?status=completed",
+			icon: <FiCheckCircle className="w-7 h-7 text-green-600" />,
+			iconBg: "bg-green-50 border border-green-100",
+			cardBg: "bg-white border-l-4 border-green-500",
+		},
+	];
+
+	// Get recent orders (latest 4)
+	const recentOrders = dashboardData.orders
+		.slice(0, 4)
+		.map(order => {
+			// Find customer name
+			const customer = dashboardData.customers.find(c => c.id === order.customerId);
+			const customerName = customer?.businessName || customer?.contactPerson || `Customer ${order.customerId?.slice(0, 8)}`;
+			
+			return {
+				id: order.id,
+				customer: customerName,
+				date: new Date(order.createdAt).toLocaleDateString(),
+				status: order.status === 'delivered' ? 'Completed' : 'Pending',
+				total: `$${order.total?.toFixed(2) || '0.00'}`,
+			};
+		});
 	
 	// Auto refresh has been removed - users will need to manually refresh the page
 	// or navigate away and back to see updates
@@ -112,12 +187,12 @@ export default function SellerDashboard() {
 
 			{/* Mobile Sidebar Toggle */}
 			<button
-				className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
+				className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-2 sm:p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
 				onClick={() => setSidebarOpen(true)}
 				aria-label="Open sidebar"
 			>
 				<svg
-					className="w-6 h-6"
+					className="w-5 h-5 sm:w-6 sm:h-6"
 					fill="none"
 					stroke="currentColor"
 					strokeWidth="2"
@@ -135,50 +210,71 @@ export default function SellerDashboard() {
 			<SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
 			{/* Main Content */}
-			<main className="flex-1 w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-8">
+			<main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 md:py-8 mt-16 md:mt-0 flex flex-col gap-6 sm:gap-8">
+				{/* Error State */}
+				{error && (
+					<div className="bg-red-50 border border-red-200 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+						<div className="text-red-600 flex-shrink-0">
+							<svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+								<path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+							</svg>
+						</div>
+						<div className="flex-1">
+							<p className="text-red-800 font-medium">Failed to load dashboard data</p>
+							<p className="text-red-600 text-sm">{error}</p>
+						</div>
+						<button
+							onClick={() => window.location.reload()}
+							className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
+						>
+							Retry
+						</button>
+					</div>
+				)}
+
 				{/* Summary Cards */}
 				{isLoading ? (
 					<SkeletonDashboardCards count={4} />
 				) : (
-					<section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+					<section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
 						{summaryCards.map((card) => (
 							<Link
 								key={card.label}
 								href={card.href}
-								className={`rounded-lg p-6 flex flex-col gap-3 shadow-lg hover:shadow-xl transition-all duration-300 group hover:scale-105 ${card.cardBg}`}
+								className={`rounded-lg p-4 sm:p-6 flex flex-col gap-3 shadow-lg hover:shadow-xl transition-all duration-300 group hover:scale-105 ${card.cardBg}`}
 							>
 								<div className="flex items-center gap-3">
-									<span className={`inline-block p-3 rounded-lg ${card.iconBg} group-hover:scale-110 transition-all duration-300`}>
+									<span className={`inline-block p-2 sm:p-3 rounded-lg ${card.iconBg} group-hover:scale-110 transition-all duration-300`}>
 										{card.icon}
 									</span>
-									<span className="text-lg font-semibold text-gray-800">{card.label}</span>
+									<span className="text-base sm:text-lg font-semibold text-gray-800">{card.label}</span>
 								</div>
-								<span className="text-3xl font-bold tracking-tight text-gray-900">{card.value}</span>
+								<span className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900">{card.value}</span>
 							</Link>
 						))}
 					</section>
 				)}
 
 				{/* Quick Actions */}
-				<section className="flex flex-wrap gap-4">
-					<Link href="/seller/users/create" className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${BUTTON_OUTLINE}`}>
+				<section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+					<Link href="/seller/users/create" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_OUTLINE}`}>
 						+ Add New Customer
 					</Link>
-					<Link href="/seller/products/create" className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${BUTTON_OUTLINE}`}>
+					<Link href="/seller/products/create" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_OUTLINE}`}>
 						+ Add New Product
 					</Link>
-					<Link href="/seller/orders" className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${BUTTON_PRIMARY}`}>
+					<Link href="/seller/orders" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_PRIMARY}`}>
 						View All Orders
 					</Link>
-					<Link href="/seller/reports" className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${BUTTON_OUTLINE}`}>
+					<Link href="/seller/reports" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_OUTLINE}`}>
 						📊 Financial Reports
 					</Link>
 				</section>
 
 				{/* Recent Orders Table */}
 				<section className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-					<div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-						<h2 className="font-bold text-xl text-gray-900">
+					<div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+						<h2 className="font-bold text-lg sm:text-xl text-gray-900">
 							Recent Orders
 						</h2>
 						<Link
@@ -195,7 +291,57 @@ export default function SellerDashboard() {
 						</div>
 					) : (
 						<div className="overflow-x-auto">
-							<table className="min-w-full text-sm">
+							{/* Mobile Card View */}
+							<div className="block sm:hidden">
+								{recentOrders.length === 0 ? (
+									<div className="py-8 px-4 text-center text-gray-500">
+										<div className="flex flex-col items-center gap-2">
+											<FiBox className="w-8 h-8 text-gray-400" />
+											<p>No orders found</p>
+											<p className="text-sm">Orders will appear here once customers start placing them</p>
+										</div>
+									</div>
+								) : (
+									<div className="divide-y divide-gray-100">
+										{recentOrders.map((order) => (
+											<div key={order.id} className="p-4 hover:bg-gray-50">
+												<div className="flex justify-between items-start mb-2">
+													<div className="font-mono text-sm font-semibold text-gray-900">
+														#{order.id.slice(-6).toUpperCase()}
+													</div>
+													<span
+														className={`px-2 py-1 rounded-full text-xs font-semibold ${order.status === "Completed" ? STATUS_COMPLETED : STATUS_PENDING}`}
+													>
+														{order.status}
+													</span>
+												</div>
+												<div className="text-sm text-gray-800 font-medium mb-1">
+													{order.customer}
+												</div>
+												<div className="flex justify-between items-center">
+													<div className="text-sm text-gray-600">
+														{order.date}
+													</div>
+													<div className="flex items-center gap-3">
+														<div className="text-sm font-semibold text-gray-900">
+															{order.total}
+														</div>
+														<Link
+															href={`/seller/orders/${order.id}`}
+															className="text-red-700 hover:text-red-800 text-sm font-semibold"
+														>
+															Details
+														</Link>
+													</div>
+												</div>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+							
+							{/* Desktop Table View */}
+							<table className="hidden sm:table min-w-full text-sm">
 								<thead className="bg-gray-50">
 									<tr className="text-left text-gray-700 border-b border-gray-200">
 										<th className="py-3 px-4 font-semibold">Order ID</th>
@@ -207,42 +353,54 @@ export default function SellerDashboard() {
 									</tr>
 								</thead>
 								<tbody className="bg-white">
-									{recentOrders.map((order, index) => (
-										<tr
-											key={order.id}
-											className={`border-b border-gray-100 hover:bg-gray-50 transition-all duration-200 ${
-												index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-											}`}
-										>
-											<td className="py-3 px-4 font-mono text-gray-900 font-medium">
-												{order.id}
-											</td>
-											<td className="py-3 px-4 text-gray-800 font-medium">
-												{order.customer}
-											</td>
-											<td className="py-3 px-4 text-gray-600">
-												{order.date}
-											</td>
-											<td className="py-3 px-4">
-												<span
-													className={`px-3 py-1 rounded-full text-xs font-semibold ${order.status === "Completed" ? STATUS_COMPLETED : STATUS_PENDING}`}
-												>
-													{order.status}
-												</span>
-											</td>
-											<td className="py-3 px-4 text-gray-900 font-semibold">
-												{order.total}
-											</td>
-											<td className="py-3 px-4 text-right">
-												<Link
-													href={`/seller/orders/${order.id}`}
-													className="text-red-700 hover:text-red-800 hover:underline font-semibold transition-colors duration-200"
-												>
-													Details
-												</Link>
+									{recentOrders.length === 0 ? (
+										<tr>
+											<td colSpan={6} className="py-8 px-4 text-center text-gray-500">
+												<div className="flex flex-col items-center gap-2">
+													<FiBox className="w-8 h-8 text-gray-400" />
+													<p>No orders found</p>
+													<p className="text-sm">Orders will appear here once customers start placing them</p>
+												</div>
 											</td>
 										</tr>
-									))}
+									) : (
+										recentOrders.map((order, index) => (
+											<tr
+												key={order.id}
+												className={`border-b border-gray-100 hover:bg-gray-50 transition-all duration-200 ${
+													index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+												}`}
+											>
+												<td className="py-3 px-4 font-mono text-gray-900 font-medium">
+													#{order.id.slice(-6).toUpperCase()}
+												</td>
+												<td className="py-3 px-4 text-gray-800 font-medium">
+													{order.customer}
+												</td>
+												<td className="py-3 px-4 text-gray-600">
+													{order.date}
+												</td>
+												<td className="py-3 px-4">
+													<span
+														className={`px-3 py-1 rounded-full text-xs font-semibold ${order.status === "Completed" ? STATUS_COMPLETED : STATUS_PENDING}`}
+													>
+														{order.status}
+													</span>
+												</td>
+												<td className="py-3 px-4 text-gray-900 font-semibold">
+													{order.total}
+												</td>
+												<td className="py-3 px-4 text-right">
+													<Link
+														href={`/seller/orders/${order.id}`}
+														className="text-red-700 hover:text-red-800 hover:underline font-semibold transition-colors duration-200"
+													>
+														Details
+													</Link>
+												</td>
+											</tr>
+										))
+									)}
 								</tbody>
 							</table>
 						</div>

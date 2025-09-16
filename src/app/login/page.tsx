@@ -11,8 +11,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   // Check if user is already authenticated
@@ -42,7 +41,6 @@ export default function LoginPage() {
           return;
         }
       }
-      setCheckingAuth(false);
     });
 
     return () => unsubscribe();
@@ -51,7 +49,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setIsLoading(true);
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -91,18 +89,9 @@ export default function LoginPage() {
       const errorMessage = err instanceof Error ? err.message : 'Failed to login. Please try again.';
       setError(errorMessage);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
-
-  // Show loading spinner while checking auth state
-  if (checkingAuth) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-700"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden">
@@ -150,7 +139,6 @@ export default function LoginPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={loading}
           />
           <input
             type="password"
@@ -159,16 +147,20 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
           />
           <button
             type="submit"
-            className={`bg-elegant-red-600 hover:bg-black text-white font-semibold py-2 rounded transition-colors ${
-              loading ? 'opacity-70 cursor-not-allowed' : ''
-            }`}
-            disabled={loading}
+            disabled={isLoading}
+            className="bg-elegant-red-600 hover:bg-black text-white font-semibold py-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {isLoading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Signing in...
+              </>
+            ) : (
+              'Login'
+            )}
           </button>
         </form>
         <div className="mt-6 text-center w-full">

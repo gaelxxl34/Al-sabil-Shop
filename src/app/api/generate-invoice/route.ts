@@ -7,22 +7,29 @@ import { Customer } from '@/types/customer';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Starting PDF generation...');
+
     // Verify authentication
     const sessionCookie = request.cookies.get('session');
     if (!sessionCookie?.value) {
+      console.log('No session cookie found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    console.log('Verifying session cookie...');
     const decodedToken = await adminAuth.verifySessionCookie(sessionCookie.value, true);
     if (!decodedToken) {
+      console.log('Invalid session cookie');
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
     }
 
     const { orderId } = await request.json();
+    console.log('Processing order:', orderId);
 
     // Get order data
     const orderDoc = await adminDb.collection('orders').doc(orderId).get();
     if (!orderDoc.exists) {
+      console.log('Order not found:', orderId);
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
@@ -31,10 +38,12 @@ export async function POST(request: NextRequest) {
     // Get customer data
     const customerDoc = await adminDb.collection('customers').doc(order.customerId).get();
     if (!customerDoc.exists) {
+      console.log('Customer not found:', order.customerId);
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
     const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
+    console.log('Successfully fetched order and customer data');
 
     // Generate invoice number
     const generateInvoiceNumber = (order: Order) => {
@@ -110,6 +119,21 @@ export async function POST(request: NextRequest) {
               width: 120px;
               height: 120px;
               object-fit: contain;
+              margin-bottom: 8px;
+              display: block;
+            }
+            
+            .logo-section .logo-fallback {
+              width: 120px;
+              height: 120px;
+              background: #dc2626;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-size: 24px;
+              font-weight: bold;
+              border-radius: 8px;
               margin-bottom: 8px;
             }
             
@@ -249,7 +273,7 @@ export async function POST(request: NextRequest) {
         <body>
           <div class="header">
             <div class="logo-section">
-              <img src="${getBaseUrl()}/logo.png" alt="Al-Sabil Logo" />
+              <div class="logo-fallback">Al-Sabil</div>
               <div class="company-details">
                 <div>${companyInfo.address}</div>
                 <div>Phone: ${companyInfo.phone}</div>
@@ -375,15 +399,29 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    // Generate PDF using Puppeteer
+    console.log('Launching Puppeteer...');
+    // Generate PDF using Puppeteer with production-friendly config
     const browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
     });
 
+    console.log('Creating new page...');
     const page = await browser.newPage();
+    
+    console.log('Setting page content...');
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
+    console.log('Generating PDF...');
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -395,7 +433,10 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    console.log('Closing browser...');
     await browser.close();
+
+    console.log('PDF generated successfully, size:', pdfBuffer.length, 'bytes');
 
     // Return PDF as response
     return new NextResponse(new Uint8Array(pdfBuffer), {
@@ -407,8 +448,30 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error generating PDF:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    
+    // Specific error handling for common issues
+    if (error instanceof Error) {
+      if (error.message.includes('Failed to launch')) {
+        console.error('Puppeteer launch failed - this usually indicates missing dependencies');
+        return NextResponse.json(
+          { error: 'PDF generation service unavailable - missing dependencies' },
+          { status: 500 }
+        );
+      }
+      
+      if (error.message.includes('NEXT_PUBLIC_BASE_URL')) {
+        console.error('Base URL configuration error');
+        return NextResponse.json(
+          { error: 'PDF generation configuration error' },
+          { status: 500 }
+        );
+      }
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to generate PDF' },
+      { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
