@@ -49,7 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     try {
       console.log('🔍 AuthProvider: Checking session...');
-      const response = await fetch('/api/auth/session');
+      const response = await fetch('/api/auth/session', {
+        credentials: 'include', // Ensure cookies are included
+        cache: 'no-store', // Always get fresh session data
+      });
       lastSessionCheck.current = now;
       
       if (response.ok) {
@@ -73,14 +76,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setUserData(null);
         
-        // Only set error for actual server errors, not authentication failures
-        if (response.status >= 500) {
+        // Handle specific status codes
+        if (response.status === 401) {
+          // Unauthorized - clear any stale auth state
+          console.log('🧹 AuthProvider: Clearing stale authentication state');
+        } else if (response.status >= 500) {
+          // Server error - set error for display
           setError('Server error during authentication check');
         }
       }
     } catch (err) {
       console.error('❌ AuthProvider: Session check error:', err);
-      setError('Session check failed');
+      
+      // Check if this is a network error vs other error
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError('Network error - please check your connection');
+      } else {
+        setError('Session check failed');
+      }
+      
       setUser(null);
       setUserData(null);
     } finally {

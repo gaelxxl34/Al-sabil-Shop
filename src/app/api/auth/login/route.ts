@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signIn } from '@/lib/auth';
 import { adminAuth } from '@/lib/firebase-admin';
+import { getCookieDomain } from '@/lib/env-validation';
 
 // Max Firebase session cookie duration = 14 days (in ms) per Firebase limits
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
@@ -57,9 +58,11 @@ export async function POST(request: NextRequest) {
       value: sessionCookie,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       path: '/',
       maxAge: SESSION_DURATION_SECONDS,
+      // Don't set domain for localhost in development
+      ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
     });
 
     // Lightweight non-HTTP-only role cookie for quick client gating (optional)
@@ -68,9 +71,11 @@ export async function POST(request: NextRequest) {
       value: userData.role,
       httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       path: '/',
       maxAge: SESSION_DURATION_SECONDS,
+      // Don't set domain for localhost in development
+      ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
     });
 
     return response;

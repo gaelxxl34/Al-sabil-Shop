@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { signOut } from '@/lib/auth';
+import { getCookieDomain } from '@/lib/env-validation';
 
 export async function POST() {
   try {
@@ -12,25 +13,30 @@ export async function POST() {
       message: 'Logged out successfully',
     });
 
-    // Clear session cookie
+    // Clear session cookie with same parameters as when set
     response.cookies.set({
       name: 'session',
       value: '',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       path: '/',
       maxAge: 0,
+      // Don't set domain for localhost in development
+      ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
     });
 
+    // Clear role cookie with same parameters as when set
     response.cookies.set({
       name: 'user-role',
       value: '',
       httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       path: '/',
-      maxAge: 0, // Expire immediately
+      maxAge: 0,
+      // Don't set domain for localhost in development
+      ...(getCookieDomain() ? { domain: getCookieDomain() } : {}),
     });
 
   return response;

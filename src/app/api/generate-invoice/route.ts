@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { getBaseUrl } from '@/lib/env-validation';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
 
@@ -248,7 +249,7 @@ export async function POST(request: NextRequest) {
         <body>
           <div class="header">
             <div class="logo-section">
-              <img src="${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/logo.png" alt="Al-Sabil Logo" />
+              <img src="${getBaseUrl()}/logo.png" alt="Al-Sabil Logo" />
               <div class="company-details">
                 <div>${companyInfo.address}</div>
                 <div>Phone: ${companyInfo.phone}</div>

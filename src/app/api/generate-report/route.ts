@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
+import { getBaseUrl } from '@/lib/env-validation';
 
 interface TopProduct {
   name: string;
@@ -223,7 +224,7 @@ export async function POST(request: NextRequest) {
             <!-- Header -->
             <div class="header">
               <div class="logo">
-                <img src="${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/logo.png" 
+                <img src="${getBaseUrl()}/logo.png" 
                      alt="Al-Sabil Marketplace" />
               </div>
               <h1 class="report-title">Financial Report</h1>

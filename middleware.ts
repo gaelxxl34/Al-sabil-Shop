@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { adminAuth } from '@/lib/firebase-admin';
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -23,9 +24,19 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // For now, we trust the session cookie exists
-  // Advanced validation would require calling Firebase Admin here
-  // But that could impact performance - better to do it in guards/components
+  // Quick validation of session cookie format
+  try {
+    // Verify the session cookie is valid (this will throw if invalid/expired)
+    await adminAuth.verifySessionCookie(sessionCookie.value, true);
+    console.log('✅ Middleware: Session cookie verified');
+  } catch (error) {
+    console.log('❌ Middleware: Invalid session cookie, redirecting to login');
+    // Clear invalid cookies and redirect
+    const response = NextResponse.redirect(new URL('/login', req.url));
+    response.cookies.delete('session');
+    response.cookies.delete('user-role');
+    return response;
+  }
   
   return NextResponse.next();
 }

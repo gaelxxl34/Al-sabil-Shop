@@ -4,10 +4,20 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Session API: Starting session check...');
+    console.log('🍪 Session API: Request cookies:', request.cookies.toString());
+    
     const sessionCookie = request.cookies.get('session');
     if (!sessionCookie?.value) {
       console.log('❌ Session API: No session cookie found');
-      return NextResponse.json({ authenticated: false, error: 'No session found' }, { status: 401 });
+      return NextResponse.json({ 
+        authenticated: false, 
+        error: 'No session found',
+        debug: {
+          cookiesReceived: request.cookies.toString(),
+          userAgent: request.headers.get('user-agent'),
+          timestamp: new Date().toISOString()
+        }
+      }, { status: 401 });
     }
 
     console.log('🍪 Session API: Session cookie found, verifying...');
