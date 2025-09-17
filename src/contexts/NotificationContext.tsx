@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { useToast } from './ToastContext';
 
 export interface NotificationData {
@@ -75,7 +75,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     });
   };
 
-  const connect = () => {
+  const connect = useCallback(() => {
     if (!userId || !userRole) {
       console.log('SSE: No user ID or role provided, skipping connection');
       return;
@@ -165,9 +165,9 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     };
 
     setEventSource(es);
-  };
+  }, [userId, userRole, isReconnecting, eventSource, reconnectAttempts, showToast]);
 
-  const handleNotification = (notification: NotificationData) => {
+  const handleNotification = useCallback((notification: NotificationData) => {
     // Skip system messages
     if (notification.type === 'heartbeat' || notification.type === 'connection') {
       return;
@@ -259,7 +259,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     setTimeout(() => {
       triggerRefresh();
     }, 500); // Small delay to ensure toast is shown first
-  };
+  }, [userRole, showToast, triggerRefresh]);
 
   const reconnect = () => {
     setReconnectAttempts(0); // Reset attempts for manual reconnection

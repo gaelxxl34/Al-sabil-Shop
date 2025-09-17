@@ -286,10 +286,6 @@ function calculatePaymentAnalysis(orders: Array<{ id: string; [key: string]: unk
   const totalOutstanding = totalRevenue - totalPaidAmount;
 
   // Break down by payment status
-  const paidOrdersTotal = orders
-    .filter(order => order.paymentStatus === 'paid')
-    .reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-    
   const partialOrdersTotal = orders
     .filter(order => order.paymentStatus === 'partial')
     .reduce((sum, order) => sum + ((order.total as number) || 0), 0);
@@ -297,10 +293,6 @@ function calculatePaymentAnalysis(orders: Array<{ id: string; [key: string]: unk
   const partialOrdersPaid = orders
     .filter(order => order.paymentStatus === 'partial')
     .reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
-    
-  const pendingOrdersTotal = orders
-    .filter(order => ['pending', 'overdue'].includes(order.paymentStatus as string))
-    .reduce((sum, order) => sum + ((order.total as number) || 0), 0);
 
   const result = [
     { 

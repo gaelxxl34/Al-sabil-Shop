@@ -5,7 +5,6 @@ import {
   FiCalendar, 
   FiDollarSign, 
   FiUsers, 
-  FiTrendingUp,
   FiAlertCircle,  
   FiCheckCircle,
   FiFileText,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Image from "next/image";
 import SellerSidebar from "@/components/SellerSidebar";
@@ -33,7 +33,7 @@ export default function EditProduct() {
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-  const fetchProduct = async () => {
+  const fetchProduct = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -54,7 +54,7 @@ export default function EditProduct() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId]);
 
   useEffect(() => {
     if (productId) {

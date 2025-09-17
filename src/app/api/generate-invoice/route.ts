@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
-import { getBaseUrl } from '@/lib/env-validation';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
 

@@ -1,5 +1,6 @@
 // pages/_error.tsx
 import { NextPageContext } from 'next';
+import Link from 'next/link';
 
 interface ErrorProps {
   statusCode: number;
@@ -21,12 +22,12 @@ function Error({ statusCode }: ErrorProps) {
             ? `A ${statusCode} error occurred on server`
             : 'An error occurred on client'}
         </p>
-        <a
+        <Link
           href="/"
           className="inline-block bg-elegant-red-600 text-white px-6 py-3 rounded-lg hover:bg-elegant-red-700 transition-colors"
         >
           Go back home
-        </a>
+        </Link>
       </div>
     </div>
   );

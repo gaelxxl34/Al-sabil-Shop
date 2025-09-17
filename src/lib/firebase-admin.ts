@@ -5,7 +5,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 // NOTE: This module must only be imported in Node.js runtime (route handlers, scripts),
 // never in Edge middleware/components. Avoid importing it from middleware.
 // It uses Node core modules (fs/path) which are unsupported in Edge.
-import * as path from 'path';
 import * as fs from 'fs';
 
 // Initialize Firebase Admin app

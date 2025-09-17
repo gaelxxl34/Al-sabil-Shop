@@ -8,7 +8,7 @@ import SellerGuard from '@/components/SellerGuard';
 import { useAuth } from '@/components/AuthProvider';
 import { orderApi } from '@/lib/api-client';
 import { Order } from '@/types/cart';
-import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiFileText, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX } from 'react-icons/fi';
+import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX } from 'react-icons/fi';
 import { Skeleton } from '@/components/SkeletonLoader';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -201,25 +201,6 @@ export default function SellerOrdersPage() {
     } catch (error) {
       console.error('Error updating order status:', error);
       showToastNotification('Failed to update order status', 'error');
-    }
-  };
-
-  const handlePaymentStatusChange = async (orderId: string, newPaymentStatus: PaymentStatus) => {
-    try {
-      await orderApi.updateOrder(orderId, { paymentStatus: newPaymentStatus });
-      
-      // Get order details for user-friendly message
-      const order = orders.find(o => o.id === orderId);
-      const orderNumber = `#${orderId.slice(-6).toUpperCase()}`;
-      
-      showToastNotification(
-        `Payment status for order ${orderNumber} updated to ${newPaymentStatus}`, 
-        'success'
-      );
-      await fetchOrders(true); // Force refresh orders
-    } catch (error) {
-      console.error('Error updating payment status:', error);
-      showToastNotification('Failed to update payment status', 'error');
     }
   };
 
@@ -757,7 +738,7 @@ export default function SellerOrdersPage() {
                 </label>
                 <select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                  onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'bank_transfer' | 'credit' | 'other')}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                 >
                   <option value="cash">Cash</option>

@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { GiMeat, GiChickenOven, GiFishCooked } from "react-icons/gi";
+import { GiMeat } from "react-icons/gi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
 import SkeletonComponents from "@/components/SkeletonLoader";

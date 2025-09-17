@@ -19,13 +19,6 @@ const requiredEnvVars = {
   JWT_SECRET: process.env.JWT_SECRET,
 };
 
-const optionalEnvVars = {
-  // Optional in development, required in production
-  NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
-  COOKIE_DOMAIN: process.env.COOKIE_DOMAIN,
-  FIREBASE_ADMIN_KEY_PATH: process.env.FIREBASE_ADMIN_KEY_PATH,
-};
-
 export function validateEnvironment() {
   const missing: string[] = [];
   const warnings: string[] = [];
