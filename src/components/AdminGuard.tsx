@@ -3,7 +3,6 @@
 import { ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
-import SkeletonComponents from '@/components/SkeletonLoader';
 import LoadingScreen from '@/components/LoadingScreen';
 
 interface AdminGuardProps {

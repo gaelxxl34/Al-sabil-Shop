@@ -3,7 +3,7 @@
 // src/components/AdminSidebar.tsx
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiSettings, FiLogOut } from "react-icons/fi";
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
@@ -22,7 +22,6 @@ const navLinks = [
 
 export default function AdminSidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   

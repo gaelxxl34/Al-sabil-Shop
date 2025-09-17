@@ -184,12 +184,7 @@ export async function PUT(
 
     // Send real-time notifications for status updates
     try {
-      // Get customer and seller info for notifications
-      const customerDoc = await adminDb.collection('users').doc(existingOrder.customerId).get();
-      const sellerDoc = await adminDb.collection('users').doc(existingOrder.sellerId).get();
-      
-      const customerData = customerDoc.data();
-      const sellerData = sellerDoc.data();
+      // Note: Future feature for real-time notifications can fetch customer/seller data here
 
     } catch (error) {
       console.error('Error fetching related data:', error);

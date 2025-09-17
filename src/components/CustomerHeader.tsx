@@ -3,7 +3,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { FiShoppingCart, FiPackage, FiSettings, FiLogOut, FiChevronDown } from "react-icons/fi";
 import { useAuth } from "@/components/AuthProvider";
 import { useCart } from "@/contexts/CartContext";
@@ -19,7 +18,6 @@ export default function CustomerHeader({
   showCartButton = true,
   customActions 
 }: CustomerHeaderProps) {
-  const router = useRouter();
   const { userData, logout } = useAuth();
   const { getItemCount, isHydrated } = useCart();
   const [showUserMenu, setShowUserMenu] = useState(false);

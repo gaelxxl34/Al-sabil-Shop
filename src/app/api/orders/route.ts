@@ -209,9 +209,7 @@ export async function POST(request: NextRequest) {
       ...order,
     };
 
-    // Get seller info for order completion (customer info already available from above)
-    const sellerDoc = await adminDb.collection('users').doc(sellerId).get();
-    const sellerData = sellerDoc.data();
+    // Note: Future feature for notifications can fetch seller data here
 
     return NextResponse.json({
       success: true,

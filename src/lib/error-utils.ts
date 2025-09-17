@@ -10,7 +10,7 @@ export function getUserFriendlyErrorMessage(error: unknown): string {
     return 'An unexpected error occurred. Please try again.';
   }
 
-  let errorMessage = 'An unexpected error occurred. Please try again.';
+  const errorMessage = 'An unexpected error occurred. Please try again.';
   
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
