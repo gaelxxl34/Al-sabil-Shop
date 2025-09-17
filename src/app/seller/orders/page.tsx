@@ -13,7 +13,6 @@ import { Skeleton } from '@/components/SkeletonLoader';
 import { useToast } from '@/contexts/ToastContext';
 
 type OrderStatus = 'pending' | 'confirmed' | 'prepared' | 'delivered' | 'cancelled';
-type PaymentStatus = 'pending' | 'partial' | 'paid' | 'overdue';
 
 const statusConfig = {
   pending: {

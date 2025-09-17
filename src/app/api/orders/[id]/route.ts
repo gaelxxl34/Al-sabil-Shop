@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { Order, PaymentRecord } from '@/types/cart';
-import { notificationManager } from '@/lib/notifications';
 
 export async function GET(
   request: NextRequest,
@@ -192,61 +191,9 @@ export async function PUT(
       const customerData = customerDoc.data();
       const sellerData = sellerDoc.data();
 
-      // Get first item name for user-friendly notification
-      const firstItemName = existingOrder.items && existingOrder.items.length > 0 
-        ? existingOrder.items[0].name 
-        : 'items';
-
-      // Notify customer about status changes
-      if (status && status !== existingOrder.status) {
-        notificationManager.broadcastNotification({
-          type: 'order_updated',
-          orderId,
-          orderNumber: `#${orderId.slice(-6).toUpperCase()}`,
-          customerName: customerData?.businessName || customerData?.name || 'Customer',
-          sellerName: sellerData?.businessName || sellerData?.name || 'Seller',
-          firstItemName,
-          status,
-          message: `Your order status has been updated to ${status}`,
-          targetUserId: existingOrder.customerId,
-          targetRole: 'customer'
-        });
-      }
-
-      // Notify customer about payment updates
-      if (paymentAmount && paymentAmount > 0) {
-        notificationManager.broadcastNotification({
-          type: 'payment_updated',
-          orderId,
-          orderNumber: `#${orderId.slice(-6).toUpperCase()}`,
-          customerName: customerData?.businessName || customerData?.name || 'Customer',
-          sellerName: sellerData?.businessName || sellerData?.name || 'Seller',
-          firstItemName,
-          paymentStatus: updateData.paymentStatus || existingOrder.paymentStatus,
-          message: `Payment of €${paymentAmount.toFixed(2)} recorded. Remaining balance: €${updateData.remainingAmount?.toFixed(2) || '0.00'}`,
-          targetUserId: existingOrder.customerId,
-          targetRole: 'customer'
-        });
-      }
-
-      // Notify customer about payment status changes (if not from payment recording)
-      if (paymentStatus && paymentStatus !== existingOrder.paymentStatus && !paymentAmount) {
-        notificationManager.broadcastNotification({
-          type: 'payment_updated',
-          orderId,
-          orderNumber: `#${orderId.slice(-6).toUpperCase()}`,
-          customerName: customerData?.businessName || customerData?.name || 'Customer',
-          sellerName: sellerData?.businessName || sellerData?.name || 'Seller',
-          firstItemName,
-          paymentStatus,
-          message: `Payment status updated to ${paymentStatus}`,
-          targetUserId: existingOrder.customerId,
-          targetRole: 'customer'
-        });
-      }
-    } catch (notificationError) {
-      console.error('Error sending notifications:', notificationError);
-      // Don't fail the update if notifications fail
+    } catch (error) {
+      console.error('Error fetching related data:', error);
+      // Don't fail the update if fetching customer/seller data fails
     }
 
     return NextResponse.json({

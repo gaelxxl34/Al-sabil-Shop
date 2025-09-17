@@ -4,8 +4,9 @@ import { useState, FormEvent, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { useAuth } from "@/components/AuthProvider";
+import LoadingScreen from "@/components/LoadingScreen";
+import { getUserFriendlyErrorMessage } from "@/lib/error-utils";
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -13,43 +14,34 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { user, userData, loading, refreshAuth } = useAuth();
 
-  // Check if user is already authenticated
+  // Check if user is already authenticated using our AuthProvider
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // User is already logged in, check their role and redirect
-        const userRole = document.cookie
-          .split('; ')
-          .find(row => row.startsWith('user-role='))
-          ?.split('=')[1];
-        
-        if (userRole) {
-          switch (userRole) {
-            case 'admin':
-              router.push('/admin/dashboard');
-              break;
-            case 'seller':
-              router.push('/seller/dashboard');
-              break;
-            case 'customer':
-              router.push('/customer/dashboard');
-              break;
-            default:
-              router.push('/');
-          }
-          return;
-        }
+    if (!loading && user && userData) {
+      // User is already logged in, redirect to appropriate dashboard
+      switch (userData.role) {
+        case 'admin':
+          router.push('/admin/dashboard');
+          break;
+        case 'seller':
+          router.push('/seller/dashboard');
+          break;
+        case 'customer':
+          router.push('/customer/dashboard');
+          break;
+        default:
+          router.push('/');
       }
-    });
-
-    return () => unsubscribe();
-  }, [router]);
+    }
+  }, [user, userData, loading, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
+
+    console.log('🔐 Login: Starting login process for:', email);
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -62,13 +54,19 @@ export default function LoginPage() {
       });
 
       const data = await response.json();
+      console.log('🔐 Login: API response:', { status: response.status, data });
 
       if (!response.ok) {
         throw new Error(data.error || 'Login failed');
       }
 
+      // Refresh auth state in AuthProvider to sync the new session
+      console.log('🔐 Login: Refreshing auth state...');
+      await refreshAuth();
+
       // Show success message briefly
       setError('');
+      console.log('🔐 Login: Success! Redirecting to', data.role, 'dashboard');
       
       // Redirect based on user role
       switch (data.role) {
@@ -86,31 +84,41 @@ export default function LoginPage() {
           router.push('/');
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to login. Please try again.';
-      setError(errorMessage);
+      console.error('Login error:', err);
+      
+      // Use the centralized error handling utility
+      const userFriendlyMessage = getUserFriendlyErrorMessage(err);
+      setError(userFriendlyMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Show loading screen while checking auth state
+  if (loading) {
+    return <LoadingScreen message="Checking authentication..." />;
+  }
+
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center overflow-hidden">
       {/* Background image: desktop uses login.jpg, mobile uses login-mobile.png */}
       <div className="absolute inset-0 w-full h-full z-0">
-        <div className="block md:hidden w-full h-full">
+        <div className="block md:hidden relative w-full h-full">
           <Image
             src="/login-mobile.png"
             alt="Login background mobile"
             fill
+            sizes="(max-width: 768px) 100vw, 0px"
             className="object-cover object-center"
             priority
           />
         </div>
-        <div className="hidden md:block w-full h-full">
+        <div className="hidden md:block relative w-full h-full">
           <Image
             src="/login.png"
             alt="Login background"
             fill
+            sizes="(min-width: 769px) 100vw, 0px"
             className="object-cover object-center"
             priority
           />
@@ -122,7 +130,14 @@ export default function LoginPage() {
       <div className="relative z-20 w-full max-w-[420px] p-4 md:p-6 bg-white bg-opacity-95 rounded-lg shadow-lg border border-black m-2 md:ml-12 flex flex-col items-center">
         <div className="flex flex-col items-center mb-8 w-full">
           <Link href="/" className="block">
-            <Image src="/logo.png" alt="Al-Ysabil Logo" width={96} height={96} />
+            <Image 
+              src="/logo.png" 
+              alt="Al-Ysabil Logo" 
+              width={96} 
+              height={96}
+              priority
+              className="w-auto h-auto max-w-[96px] max-h-[96px]"
+            />
           </Link>
           <h1 className="mt-4 text-lg font-bold text-black">Sign in to Al-Ysabil</h1>
         </div>
@@ -155,7 +170,7 @@ export default function LoginPage() {
           >
             {isLoading ? (
               <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                 Signing in...
               </>
             ) : (

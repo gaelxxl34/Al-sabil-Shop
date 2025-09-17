@@ -4,6 +4,7 @@ import { ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import SkeletonComponents from '@/components/SkeletonLoader';
+import LoadingScreen from '@/components/LoadingScreen';
 
 interface SellerGuardProps {
   children: ReactNode;
@@ -40,16 +41,7 @@ export default function SellerGuard({ children, loadingSkeleton }: SellerGuardPr
   }, [user, userData, loading, router]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        {loadingSkeleton || (
-          <div className="w-full max-w-4xl space-y-6">
-            <SkeletonComponents.SkeletonCard className="h-32" />
-            <SkeletonComponents.SkeletonCard className="h-96" />
-          </div>
-        )}
-      </div>
-    );
+    return loadingSkeleton || <LoadingScreen message="Verifying seller access..." variant="minimal" />;
   }
 
   if (!user || !userData || userData.role !== 'seller') {

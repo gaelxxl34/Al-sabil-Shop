@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FiShoppingCart, FiArrowLeft, FiCreditCard, FiUser, FiMapPin, FiCalendar, FiFileText, FiCheck, FiLoader } from "react-icons/fi";
-import { logout } from "@/lib/auth";
+import { useAuth } from "@/components/AuthProvider";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/contexts/ToastContext";
 import { orderApi, customerApi } from "@/lib/api-client";
@@ -23,6 +23,7 @@ interface CustomerDisplayData {
 
 export default function CheckoutPage() {
   const router = useRouter();
+  const { logout } = useAuth();
   const { state, clearCart, getCartSummary, getItemCount, isHydrated } = useCart();
   const { showToast } = useToast();
   const [customerData, setCustomerData] = useState<CustomerDisplayData | null>(null);
@@ -136,7 +137,7 @@ export default function CheckoutPage() {
       
       const errorObj = error as { code?: number; response?: { status: number } };
       if (errorObj.code === 401 || errorObj.response?.status === 401) {
-        await logout(router);
+        await logout();
         return;
       }
       

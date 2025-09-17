@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function HomePage() {
   const router = useRouter();
@@ -43,10 +44,6 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [router]);
 
-  // Show loading spinner while checking auth state
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-700"></div>
-    </div>
-  );
+  // Show loading screen while checking auth state
+  return <LoadingScreen message="Redirecting..." />;
 }

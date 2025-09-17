@@ -2,14 +2,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { cookies } from 'next/headers';
 import { CreateProductRequest, Product } from '@/types/product';
 import { Query } from 'firebase-admin/firestore';
 
-async function verifyAuth() {
+async function verifyAuth(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
+    const sessionCookie = request.cookies.get('session')?.value;
 
     if (!sessionCookie) {
       console.log('❌ Auth - No session cookie found');
@@ -54,8 +52,8 @@ async function verifyAuth() {
   }
 }
 
-async function verifySellerAuth() {
-  const user = await verifyAuth();
+async function verifySellerAuth(request: NextRequest) {
+  const user = await verifyAuth(request);
   if (!user || !['seller', 'admin'].includes(user.role)) {
     return null;
   }
@@ -67,7 +65,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const sellerId = searchParams.get('sellerId');
 
-    const user = await verifyAuth();
+    const user = await verifyAuth(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized. Authentication required.' }, { status: 401 });
     }
@@ -130,7 +128,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await verifySellerAuth();
+    const user = await verifySellerAuth(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized. Only sellers can create products.' }, { status: 401 });
     }

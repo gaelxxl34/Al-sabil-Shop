@@ -4,7 +4,6 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/contexts/ToastContext";
-import { NotificationWrapper } from "@/components/NotificationWrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,6 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'),
   title: "Al-Sabil Ordering App",
   description: "Wholesale ordering platform for Al-Sabil products",
   keywords: ["wholesale", "ordering", "Al-Sabil", "products", "business", "platform"],
@@ -82,9 +82,7 @@ export default function RootLayout({
         <AuthProvider>
           <ToastProvider>
             <CartProvider>
-              <NotificationWrapper>
-                {children}
-              </NotificationWrapper>
+              {children}
             </CartProvider>
           </ToastProvider>
         </AuthProvider>

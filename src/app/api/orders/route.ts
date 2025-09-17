@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { Order, OrderItem } from '@/types/cart';
 import { Query, DocumentData } from 'firebase-admin/firestore';
-import { notificationManager } from '@/lib/notifications';
 
 export async function GET(request: NextRequest) {
   try {
@@ -210,44 +209,9 @@ export async function POST(request: NextRequest) {
       ...order,
     };
 
-    // Get seller info for notifications (customer info already available from above)
+    // Get seller info for order completion (customer info already available from above)
     const sellerDoc = await adminDb.collection('users').doc(sellerId).get();
     const sellerData = sellerDoc.data();
-
-    // Get first item name for user-friendly notification
-    const firstItemName = orderItems.length > 0 ? orderItems[0].name : 'items';
-
-    // Send real-time notifications
-    try {
-      // Notify seller about new order
-      notificationManager.broadcastNotification({
-        type: 'order_created',
-        orderId: orderRef.id,
-        orderNumber: `#${orderRef.id.slice(-6).toUpperCase()}`,
-        customerName: customerData?.businessName || customerData?.name || 'Customer',
-        sellerName: sellerData?.businessName || sellerData?.name || 'Seller',
-        firstItemName,
-        message: `New order received from ${customerData?.businessName || 'customer'}`,
-        targetUserId: sellerId,
-        targetRole: 'seller'
-      });
-
-      // Notify customer about order confirmation
-      notificationManager.broadcastNotification({
-        type: 'order_created',
-        orderId: orderRef.id,
-        orderNumber: `#${orderRef.id.slice(-6).toUpperCase()}`,
-        customerName: customerData?.businessName || customerData?.name || 'Customer',
-        sellerName: sellerData?.businessName || sellerData?.name || 'Seller',
-        firstItemName,
-        message: `Your order has been placed successfully`,
-        targetUserId: customerId,
-        targetRole: 'customer'
-      });
-    } catch (notificationError) {
-      console.error('Error sending notifications:', notificationError);
-      // Don't fail the order creation if notifications fail
-    }
 
     return NextResponse.json({
       success: true,

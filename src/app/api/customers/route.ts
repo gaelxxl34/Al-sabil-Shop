@@ -1,13 +1,11 @@
 // src/app/api/customers/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { cookies } from 'next/headers';
 import { CreateCustomerData } from '@/types/customer';
 
-async function verifySellerAuth() {
+async function verifySellerAuth(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
+    const sessionCookie = request.cookies.get('session')?.value;
 
     if (!sessionCookie) {
       console.log('❌ Seller Auth - No session cookie found');
@@ -54,7 +52,7 @@ async function verifySellerAuth() {
 // POST /api/customers - Create new customer (seller only)
 export async function POST(request: NextRequest) {
   try {
-    const seller = await verifySellerAuth();
+    const seller = await verifySellerAuth(request);
     if (!seller) {
       return NextResponse.json({ error: 'Unauthorized. Only sellers can create customers.' }, { status: 401 });
     }
@@ -306,9 +304,9 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/customers - Get all customers for the current seller
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const seller = await verifySellerAuth();
+    const seller = await verifySellerAuth(request);
     if (!seller) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

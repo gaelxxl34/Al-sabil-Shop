@@ -8,6 +8,7 @@ interface AuthContextType {
   userData: UserData | null;
   loading: boolean;
   error: string | null;
+  isLoggingOut: boolean;
   refreshAuth: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthContextType>({
   userData: null,
   loading: true,
   error: null,
+  isLoggingOut: false,
   refreshAuth: async () => {},
   logout: async () => {},
 });
@@ -26,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const sessionCheckInitiated = useRef(false);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -148,32 +151,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Logout function
   const logout = async () => {
     try {
-      console.log('🚪 AuthProvider: Logging out...');
+      console.log('🚪 AuthProvider: Logout initiated...');
+      setIsLoggingOut(true);
+      
+      // IMMEDIATELY clear auth state to prevent API calls
+      setUser(null);
+      setUserData(null);
+      setError(null);
+      
+      // Call the logout API to clear server-side cookies
       const response = await fetch('/api/auth/logout', { 
         method: 'POST',
         credentials: 'include'
       });
-      
-      // Clear state regardless of API response
-      setUser(null);
-      setUserData(null);
-      setError(null);
       
       if (response.ok) {
         console.log('✅ AuthProvider: Logout successful');
       } else {
         console.warn('⚠️ AuthProvider: Logout API call failed, but local state cleared');
       }
+      
+      // Use window.location instead of router for hard redirect to clear all state
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
     } catch (err) {
       console.error('❌ AuthProvider: Logout error:', err);
-      // Still clear local state even if API call fails
+      // Still clear local state and redirect even if API call fails
       setUser(null);
       setUserData(null);
+      
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, error, refreshAuth, logout }}>
+    <AuthContext.Provider value={{ user, userData, loading, error, isLoggingOut, refreshAuth, logout }}>
       {isHydrated ? children : <div style={{ visibility: 'hidden' }}>{children}</div>}
     </AuthContext.Provider>
   );

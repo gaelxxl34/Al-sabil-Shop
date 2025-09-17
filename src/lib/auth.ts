@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { UserDocument } from '../types/user';
+import { logAndGetUserFriendlyError } from './error-utils';
 
 export type { UserRole } from '../types/user';
 export type { UserDocument as UserData } from '../types/user';
@@ -51,27 +52,9 @@ export const signIn = async (email: string, password: string) => {
       token: idToken,
     };
   } catch (error: unknown) {
-    console.error('Sign in error:', error);
-    
-    // Handle Firebase Auth errors
-    if (error instanceof Error) {
-      if (error.message.includes('auth/user-not-found')) {
-        throw new Error('No account found with this email address');
-      }
-      if (error.message.includes('auth/wrong-password')) {
-        throw new Error('Invalid password');
-      }
-      if (error.message.includes('auth/invalid-email')) {
-        throw new Error('Invalid email address');
-      }
-      if (error.message.includes('auth/too-many-requests')) {
-        throw new Error('Too many failed attempts. Please try again later');
-      }
-      
-      throw new Error(error.message);
-    }
-    
-    throw new Error('Failed to sign in');
+    // Use the centralized error handling utility
+    const userFriendlyMessage = logAndGetUserFriendlyError(error, 'sign-in');
+    throw new Error(userFriendlyMessage);
   }
 };
 

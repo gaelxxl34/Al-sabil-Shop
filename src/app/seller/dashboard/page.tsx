@@ -9,6 +9,7 @@ import { FiUsers, FiBox, FiClock, FiCheckCircle } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
 import SellerGuard from "@/components/SellerGuard";
+import { useAuth } from "@/components/AuthProvider";
 import { 
   SkeletonDashboardCards, 
   SkeletonTable 
@@ -37,6 +38,7 @@ interface DashboardStats {
 }
 
 export default function SellerDashboard() {
+	const { user, isLoggingOut } = useAuth();
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -54,10 +56,22 @@ export default function SellerDashboard() {
 
 	// Fetch dashboard data
 	useEffect(() => {
+		// Don't fetch data if user is logging out or not authenticated
+		if (isLoggingOut || !user) {
+			console.log('🚫 SellerDashboard: Skipping data fetch - logout in progress or no user');
+			return;
+		}
+
 		const fetchDashboardData = async () => {
 			try {
 				setIsLoading(true);
 				setError(null);
+
+				// Double-check user is still authenticated before making API calls
+				if (isLoggingOut || !user) {
+					console.log('🚫 SellerDashboard: User logged out during fetch, aborting');
+					return;
+				}
 
 				// Fetch data from all endpoints in parallel
 				const [customersRes, productsRes, ordersRes] = await Promise.all([
@@ -112,14 +126,17 @@ export default function SellerDashboard() {
 
 			} catch (err) {
 				console.error('Error fetching dashboard data:', err);
-				setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+				// Only set error if user is still authenticated (avoid showing errors during logout)
+				if (!isLoggingOut && user) {
+					setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+				}
 			} finally {
 				setIsLoading(false);
 			}
 		};
 
 		fetchDashboardData();
-	}, []);
+	}, [user, isLoggingOut]); // Add user and isLoggingOut as dependencies
 
 	// Create summary cards with real data
 	const summaryCards = [

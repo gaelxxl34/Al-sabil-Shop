@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiSettings, FiLogOut } from "react-icons/fi";
 import { useState } from "react";
-import { logout } from "@/lib/auth";
+import { useAuth } from "@/components/AuthProvider";
 
 const SIDEBAR_BG = "bg-gray-900";
 const SIDEBAR_ACTIVE = "bg-elegant-red-600 text-white font-semibold shadow-lg";
@@ -23,12 +23,13 @@ const navLinks = [
 export default function AdminSidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
-      await logout(router);
+      await logout();
     } catch (error) {
       console.error('Error logging out:', error);
     } finally {

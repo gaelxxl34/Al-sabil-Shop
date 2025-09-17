@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { FiShoppingCart, FiPackage, FiSettings, FiLogOut, FiChevronDown } from "react-icons/fi";
-import { logout } from "@/lib/auth";
 import { useAuth } from "@/components/AuthProvider";
 import { useCart } from "@/contexts/CartContext";
 
@@ -21,7 +20,7 @@ export default function CustomerHeader({
   customActions 
 }: CustomerHeaderProps) {
   const router = useRouter();
-  const { userData } = useAuth();
+  const { userData, logout } = useAuth();
   const { getItemCount, isHydrated } = useCart();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -48,9 +47,10 @@ export default function CustomerHeader({
     if (confirm("Are you sure you want to logout?")) {
       try {
         setIsLoggingOut(true);
-        await logout(router);
+        await logout();
+        // The AuthProvider logout will handle the redirect
       } catch (error) {
-        console.error('Error logging out:', error);
+        console.error('Logout error:', error);
       } finally {
         setIsLoggingOut(false);
       }
