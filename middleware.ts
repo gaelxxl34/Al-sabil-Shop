@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { adminAuth } from '@/lib/firebase-admin';
 
+// Force Node.js runtime for middleware (firebase-admin requires Node.js APIs)
+export const runtime = 'nodejs';
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   

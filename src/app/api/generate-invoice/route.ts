@@ -57,11 +57,15 @@ export async function POST(request: NextRequest) {
 
     // Company info
     const companyInfo = {
-      name: "Al-Sabil Wholesale",
-      address: "123 Business Street, City, Country",
-      phone: "+31 20 123 4567",
+      name: "AL SABIL MARKETPLACE LTD",
+      address: "2 PORTERS ROAD",
+      addressLine2: "COOLMINE IND EST., BLANCHARDSTOWN, DUBLIN 15, D15 PC9Y",
+      phone: "+353 86 305 5699",
       email: "orders@al-sabil.com",
-      taxId: "NL123456789B01"
+      vatNo: "2682343H",
+      companyNo: "739842",
+      iban: "IE38REVO99036064327348",
+      bicSwift: "REVOIE23"
     };
 
     // Format functions
@@ -137,9 +141,20 @@ export async function POST(request: NextRequest) {
             }
             
             .company-details {
-              font-size: 12px;
-              color: #666;
-              line-height: 1.4;
+              font-size: 11px;
+              color: #333;
+              line-height: 1.5;
+            }
+            
+            .company-details .company-name {
+              font-weight: bold;
+              font-size: 13px;
+              margin-bottom: 2px;
+            }
+            
+            .company-details .address-line {
+              font-weight: 600;
+              margin-bottom: 1px;
             }
             
             .invoice-section {
@@ -150,7 +165,14 @@ export async function POST(request: NextRequest) {
               font-size: 36px;
               font-weight: bold;
               color: #dc2626;
-              margin-bottom: 8px;
+              margin-bottom: 12px;
+            }
+            
+            .banking-details {
+              font-size: 11px;
+              line-height: 1.5;
+              margin-bottom: 16px;
+              font-weight: 600;
             }
             
             .invoice-details {
@@ -274,14 +296,21 @@ export async function POST(request: NextRequest) {
             <div class="logo-section">
               <div class="logo-fallback">Al-Sabil</div>
               <div class="company-details">
-                <div>${companyInfo.address}</div>
-                <div>Phone: ${companyInfo.phone}</div>
-                <div>Email: ${companyInfo.email}</div>
+                <div class="company-name">${companyInfo.name}</div>
+                <div class="address-line">${companyInfo.address}</div>
+                <div>${companyInfo.addressLine2}</div>
+                <div style="margin-top: 4px;">Telephone ${companyInfo.phone}</div>
+                <div>VAT No: ${companyInfo.vatNo}</div>
+                <div>Registered Company No: ${companyInfo.companyNo}</div>
               </div>
             </div>
             
             <div class="invoice-section">
               <div class="invoice-title">INVOICE</div>
+              <div class="banking-details">
+                <div>IBAN: ${companyInfo.iban}</div>
+                <div>BIC/SWIFT: ${companyInfo.bicSwift}</div>
+              </div>
               <div class="invoice-details">
                 <div><strong>Invoice #:</strong> ${invoiceNumber}</div>
                 <div><strong>Date:</strong> ${formatDate(order.createdAt)}</div>

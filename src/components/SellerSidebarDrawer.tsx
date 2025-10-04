@@ -8,7 +8,7 @@ export default function SellerSidebarDrawer({ open, onClose }: { open: boolean; 
   return (
     <div className="fixed inset-0 z-30 flex">
       <SellerSidebar onClose={onClose} />
-      <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="flex-1 bg-black/20 backdrop-blur-sm" onClick={onClose} />
     </div>
   );
 }

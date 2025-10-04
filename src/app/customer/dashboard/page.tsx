@@ -6,13 +6,15 @@
 import Link from "next/link";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { FiShoppingCart, FiSearch } from "react-icons/fi";
+import { FiShoppingCart, FiSearch, FiPackage, FiClock, FiRefreshCw } from "react-icons/fi";
 import { GiMeat } from "react-icons/gi";
 import { useAuth } from "@/components/AuthProvider";
 import { useCart } from "@/contexts/CartContext";
-import { customerApi } from "@/lib/api-client";
+import { useToast } from "@/contexts/ToastContext";
+import { customerApi, orderApi } from "@/lib/api-client";
 import { Customer } from "@/types/customer";
 import { Product } from "@/types/product";
+import { Order } from "@/types/cart";
 import CustomerHeader from "@/components/CustomerHeader";
 import CustomerMobileNav from "@/components/CustomerMobileNav";
 import CustomerPageSkeleton from "@/components/CustomerPageSkeleton";
@@ -26,7 +28,8 @@ interface ProductWithPrice extends Product {
 export default function CustomerDashboard() {
   const router = useRouter();
   const { user, userData, loading: authLoading } = useAuth();
-  const { state: cartState, addItem, getItemCount, isHydrated } = useCart();
+  const { state: cartState, addItem, updateQuantity, removeItem, getItemCount, isHydrated } = useCart();
+  const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [editingQuantity, setEditingQuantity] = useState<Record<string, boolean>>({});
@@ -37,6 +40,7 @@ export default function CustomerDashboard() {
   // Data loading states
   const [products, setProducts] = useState<ProductWithPrice[]>([]);
   const [customerData, setCustomerData] = useState<Customer | null>(null);
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,6 +166,22 @@ export default function CustomerDashboard() {
 
         console.log('🔍 Dashboard - Assigned Products:', assignedProducts);
         setProducts(assignedProducts);
+
+        // Fetch recent orders (last 2 orders)
+        try {
+          const ordersResponse = await orderApi.getOrders(user.uid);
+          if (ordersResponse.success && ordersResponse.data) {
+            // Sort by createdAt descending and take first 2
+            const sortedOrders = ordersResponse.data
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .slice(0, 2);
+            setRecentOrders(sortedOrders);
+            console.log('🔍 Dashboard - Recent Orders:', sortedOrders);
+          }
+        } catch (orderErr) {
+          console.error('Error fetching orders:', orderErr);
+          // Don't fail the whole page if orders fail to load
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -189,7 +209,17 @@ export default function CustomerDashboard() {
   const handleAddToCart = (productId: string, quantity = 1) => {
     const product = products.find(p => p.id === productId);
     if (product && product.customerPrice) {
-      addItem(product, product.customerPrice, quantity);
+      // Find existing cart item by productId
+      const existingCartItem = cartState.items.find(item => item.productId === productId);
+      
+      if (existingCartItem && editingQuantity[productId]) {
+        // If editing an existing item, update its quantity directly using the cart item ID
+        updateQuantity(existingCartItem.id, quantity);
+      } else {
+        // If adding a new item, use addItem
+        addItem(product, product.customerPrice, quantity);
+      }
+      
       setEditingQuantity(prev => ({
         ...prev,
         [productId]: false
@@ -225,7 +255,13 @@ export default function CustomerDashboard() {
     const numValue = parseInt(tempValue || '0');
     
     if (isNaN(numValue) || numValue <= 0) {
-      // For now, we'll just cancel editing
+      // Remove item from cart if quantity is 0 or invalid
+      const existingCartItem = cartState.items.find(item => item.productId === productId);
+      if (existingCartItem) {
+        removeItem(existingCartItem.id);
+      }
+      
+      // Clear editing state
       setEditingQuantity(prev => ({
         ...prev,
         [productId]: false
@@ -238,6 +274,23 @@ export default function CustomerDashboard() {
     } else {
       handleAddToCart(productId, numValue);
     }
+  };
+
+  const handleRemoveFromCart = (productId: string) => {
+    const existingCartItem = cartState.items.find(item => item.productId === productId);
+    if (existingCartItem) {
+      removeItem(existingCartItem.id);
+    }
+    // Clear editing state
+    setEditingQuantity(prev => ({
+      ...prev,
+      [productId]: false
+    }));
+    setTempQuantity(prev => {
+      const newTemp = { ...prev };
+      delete newTemp[productId];
+      return newTemp;
+    });
   };
 
   // Handle button clicks to prevent page jumping
@@ -264,6 +317,48 @@ export default function CustomerDashboard() {
     return cartState.items.reduce((total, item) => {
       return total + (item.price * item.quantity);
     }, 0);
+  };
+
+  // Handle reorder functionality
+  const handleReorder = (order: Order) => {
+    let itemsAdded = 0;
+    let itemsNotFound = 0;
+
+    // Add each item from the order to the cart
+    order.items.forEach((orderItem) => {
+      // Find the product in the current products list
+      const product = products.find(p => p.id === orderItem.productId);
+      
+      if (product && product.customerPrice) {
+        // Add the item with the current price (not the old order price)
+        addItem(product, product.customerPrice, orderItem.quantity);
+        itemsAdded++;
+      } else {
+        // Product not found or no longer available
+        itemsNotFound++;
+      }
+    });
+
+    // Show success/warning toast
+    if (itemsAdded > 0) {
+      showToast({
+        type: 'success',
+        title: 'Order items added to cart',
+        message: `${itemsAdded} ${itemsAdded === 1 ? 'item' : 'items'} added to your cart${itemsNotFound > 0 ? `. ${itemsNotFound} ${itemsNotFound === 1 ? 'item was' : 'items were'} no longer available.` : '.'}`,
+        action: {
+          label: 'View Cart',
+          onClick: () => router.push('/customer/cart')
+        },
+        duration: 5000
+      });
+    } else {
+      showToast({
+        type: 'error',
+        title: 'Cannot reorder',
+        message: 'None of the items from this order are currently available.',
+        duration: 5000
+      });
+    }
   };
 
   // Show loading or error states
@@ -321,22 +416,122 @@ export default function CustomerDashboard() {
               <p className="text-gray-600 text-lg">Discover our premium selection of fresh meat, poultry, and seafood at wholesale prices.</p>
             </>
           )}
-          {isHydrated && getTotalItems() > 0 && !loading && (
-            <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 transition-all duration-200 ease-in-out opacity-90">
-              <div className="flex items-center justify-between">
-                <span className="text-red-800 font-medium text-sm">
-                  Cart: €{getTotalPrice().toFixed(2)} ({getTotalItems()} items)
-                </span>
-                <Link 
-                  href="/customer/cart"
-                  className="bg-red-700 text-white px-4 py-1.5 rounded-lg hover:bg-red-800 transition-colors font-medium text-sm"
-                >
-                  View Cart
-                </Link>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Recent Orders Section */}
+        {!loading && recentOrders.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <FiPackage className="text-red-700" />
+                Recent Orders
+              </h3>
+              <Link 
+                href="/customer/orders"
+                className="text-red-700 hover:text-red-800 text-sm font-medium"
+              >
+                View All →
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {recentOrders.map((order) => (
+                <div 
+                  key={order.id}
+                  className="bg-white rounded-xl shadow-lg border border-gray-200 p-5 hover:shadow-xl transition-all duration-200"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-gray-500">
+                          Order #{order.id.slice(-8).toUpperCase()}
+                        </span>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          order.status === 'delivered' ? 'bg-green-100 text-green-700' :
+                          order.status === 'confirmed' ? 'bg-blue-100 text-blue-700' :
+                          order.status === 'prepared' ? 'bg-purple-100 text-purple-700' :
+                          order.status === 'cancelled' ? 'bg-gray-100 text-gray-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <FiClock className="w-4 h-4" />
+                        <span>{new Date(order.createdAt).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xl font-bold text-red-700">
+                        €{order.total.toFixed(2)}
+                      </div>
+                      <div className={`text-xs font-medium ${
+                        order.paymentStatus === 'paid' ? 'text-green-600' :
+                        order.paymentStatus === 'partial' ? 'text-yellow-600' :
+                        order.paymentStatus === 'overdue' ? 'text-red-600' :
+                        'text-gray-600'
+                      }`}>
+                        {order.paymentStatus === 'paid' ? '✓ Paid' :
+                         order.paymentStatus === 'partial' ? 'Partial' :
+                         order.paymentStatus === 'overdue' ? 'Overdue' :
+                         'Pending'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-3 mt-3">
+                    <div className="text-sm text-gray-600 mb-3">
+                      <span className="font-medium">{order.items.length}</span> {order.items.length === 1 ? 'item' : 'items'}
+                      {order.items.length > 0 && (
+                        <span className="text-gray-400"> • {order.items[0].name}
+                          {order.items.length > 1 && ` +${order.items.length - 1} more`}
+                        </span>
+                      )}
+                    </div>
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReorder(order);
+                        }}
+                        className="flex-1 bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        <FiRefreshCw className="w-4 h-4" />
+                        Reorder
+                      </button>
+                      <Link
+                        href={`/customer/orders/${order.id}`}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      >
+                        View Details →
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Cart Summary Banner */}
+        {isHydrated && getTotalItems() > 0 && !loading && (
+          <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-3 transition-all duration-200 ease-in-out opacity-90">
+            <div className="flex items-center justify-between">
+              <span className="text-red-800 font-medium text-sm">
+                Cart: €{getTotalPrice().toFixed(2)} ({getTotalItems()} items)
+              </span>
+              <Link 
+                href="/customer/cart"
+                className="bg-red-700 text-white px-4 py-1.5 rounded-lg hover:bg-red-800 transition-colors font-medium text-sm"
+              >
+                View Cart
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* Search and Filter Section */}
         <div className="mb-8 bg-white rounded-xl shadow-lg border border-gray-200 p-6">
@@ -469,29 +664,32 @@ export default function CustomerDashboard() {
                     <div className="flex items-center gap-2">
                       {getCartQuantity(product.id) || editingQuantity[product.id] ? (
                         <div className="flex items-center gap-3 flex-1">
-                          <input
-                            type="number"
-                            value={editingQuantity[product.id] ? tempQuantity[product.id] || '' : getCartQuantity(product.id)}
-                            onChange={(e) => handleQuantityChange(product.id, e.target.value)}
-                            onFocus={() => startEditingQuantity(product.id)}
-                            onBlur={() => finishEditingQuantity(product.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            min="1"
-                            step="1"
-                            className="w-16 text-center border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-200 focus:border-red-500 transition-colors font-bold text-lg text-black"
-                            placeholder="1"
-                          />
+                          <div className="flex items-center gap-1 flex-1">
+                            <input
+                              type="number"
+                              value={editingQuantity[product.id] ? tempQuantity[product.id] || '' : getCartQuantity(product.id)}
+                              onChange={(e) => handleQuantityChange(product.id, e.target.value)}
+                              onFocus={() => startEditingQuantity(product.id)}
+                              onBlur={() => finishEditingQuantity(product.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              min="1"
+                              step="1"
+                              className="w-20 text-center border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-200 focus:border-red-500 transition-colors font-bold text-lg text-black"
+                              placeholder="1"
+                            />
+                            <span className="text-sm text-gray-600 font-medium whitespace-nowrap">
+                              {product.unit}{(editingQuantity[product.id] ? parseInt(tempQuantity[product.id] || '1') : getCartQuantity(product.id)) !== 1 ? 's' : ''}
+                            </span>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              // For now, just finish editing which will remove if quantity is 0
-                              setTempQuantity(prev => ({ ...prev, [product.id]: '0' }));
-                              finishEditingQuantity(product.id);
+                              handleRemoveFromCart(product.id);
                             }}
                             className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors text-sm font-medium"
                           >
@@ -566,28 +764,32 @@ export default function CustomerDashboard() {
                     <div className="flex items-center gap-2">
                       {getCartQuantity(product.id) || editingQuantity[product.id] ? (
                         <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            value={editingQuantity[product.id] ? tempQuantity[product.id] || '' : getCartQuantity(product.id)}
-                            onChange={(e) => handleQuantityChange(product.id, e.target.value)}
-                            onFocus={() => startEditingQuantity(product.id)}
-                            onBlur={() => finishEditingQuantity(product.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            min="1"
-                            step="1"
-                            className="w-14 text-center border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-red-200 focus:border-red-500 transition-colors font-bold text-base text-black"
-                            placeholder="1"
-                          />
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={editingQuantity[product.id] ? tempQuantity[product.id] || '' : getCartQuantity(product.id)}
+                              onChange={(e) => handleQuantityChange(product.id, e.target.value)}
+                              onFocus={() => startEditingQuantity(product.id)}
+                              onBlur={() => finishEditingQuantity(product.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                }
+                              }}
+                              min="1"
+                              step="1"
+                              className="w-16 text-center border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-red-200 focus:border-red-500 transition-colors font-bold text-base text-black"
+                              placeholder="1"
+                            />
+                            <span className="text-xs text-gray-600 font-medium whitespace-nowrap">
+                              {product.unit}{(editingQuantity[product.id] ? parseInt(tempQuantity[product.id] || '1') : getCartQuantity(product.id)) !== 1 ? 's' : ''}
+                            </span>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setTempQuantity(prev => ({ ...prev, [product.id]: '0' }));
-                              finishEditingQuantity(product.id);
+                              handleRemoveFromCart(product.id);
                             }}
                             className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors text-xs font-medium"
                           >

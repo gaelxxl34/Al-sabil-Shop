@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { CartProvider } from "@/contexts/CartContext";
 import { ToastProvider } from "@/contexts/ToastContext";
+import ChatWrapper from "@/components/ChatWrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -82,6 +83,7 @@ export default function RootLayout({
         <AuthProvider>
           <ToastProvider>
             <CartProvider>
+              <ChatWrapper />
               {children}
             </CartProvider>
           </ToastProvider>

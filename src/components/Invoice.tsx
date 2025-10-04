@@ -13,9 +13,13 @@ interface InvoiceProps {
   companyInfo?: {
     name: string;
     address: string;
+    addressLine2?: string;
     phone: string;
     email: string;
-    taxId?: string;
+    vatNo?: string;
+    companyNo?: string;
+    iban?: string;
+    bicSwift?: string;
   };
 }
 
@@ -24,11 +28,15 @@ const Invoice: React.FC<InvoiceProps> = ({
   customer, 
   invoiceNumber,
   companyInfo = {
-    name: "Al-Sabil Wholesale",
-    address: "123 Business Street, City, Country",
-    phone: "+31 20 123 4567",
+    name: "AL SABIL MARKETPLACE LTD",
+    address: "2 PORTERS ROAD",
+    addressLine2: "COOLMINE IND EST., BLANCHARDSTOWN, DUBLIN 15, D15 PC9Y",
+    phone: "+353 86 305 5699",
     email: "orders@al-sabil.com",
-    taxId: "NL123456789B01"
+    vatNo: "2682343H",
+    companyNo: "739842",
+    iban: "IE38REVO99036064327348",
+    bicSwift: "REVOIE23"
   }
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -123,18 +131,29 @@ const Invoice: React.FC<InvoiceProps> = ({
               alt="Al-Sabil Logo"
               width={100}
               height={100}
-              className="object-contain mb-2 sm:w-[124px] sm:h-[124px]"
+              className="object-contain mb-3 sm:w-[124px] sm:h-[124px]"
               priority
             />
-            <div className="text-xs sm:text-sm space-y-1">
-              <p>{companyInfo.address}</p>
-              <p>Phone: {companyInfo.phone}</p>
-              <p>Email: {companyInfo.email}</p>
+            <div className="text-xs sm:text-sm space-y-0.5">
+              <p className="font-bold text-sm sm:text-base">{companyInfo.name}</p>
+              <p className="font-semibold">{companyInfo.address}</p>
+              {companyInfo.addressLine2 && <p>{companyInfo.addressLine2}</p>}
+              <p className="mt-1">Telephone {companyInfo.phone}</p>
+              {companyInfo.vatNo && <p>VAT No: {companyInfo.vatNo}</p>}
+              {companyInfo.companyNo && <p>Registered Company No: {companyInfo.companyNo}</p>}
             </div>
           </div>
           
           <div className="w-full sm:w-auto text-left sm:text-right">
-            <h2 className="text-2xl sm:text-3xl font-bold text-red-600 mb-2">INVOICE</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-red-600 mb-3">INVOICE</h2>
+            <div className="text-xs sm:text-sm space-y-0.5 mb-4">
+              {companyInfo.iban && (
+                <p className="font-semibold">IBAN: {companyInfo.iban}</p>
+              )}
+              {companyInfo.bicSwift && (
+                <p className="font-semibold">BIC/SWIFT: {companyInfo.bicSwift}</p>
+              )}
+            </div>
             <div className="text-xs sm:text-sm space-y-1">
               <p><strong>Invoice #:</strong> {invoiceNumber}</p>
               <p><strong>Date:</strong> {formatDate(order.createdAt)}</p>

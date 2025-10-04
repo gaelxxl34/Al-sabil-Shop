@@ -252,11 +252,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Only allow deletion of pending or cancelled orders
-    if (!['pending', 'cancelled'].includes(order.status)) {
-      return NextResponse.json({ error: 'Cannot delete orders that are already processed' }, { status: 400 });
-    }
-
+    // Sellers and admins can delete any order at any status
     // Delete the order
     await adminDb.collection('orders').doc(orderId).delete();
 

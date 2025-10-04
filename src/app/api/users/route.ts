@@ -157,6 +157,12 @@ export async function POST(request: NextRequest) {
       emailVerified: false
     });
 
+    // Set custom claims for role-based access
+    await adminAuth.setCustomUserClaims(userRecord.uid, {
+      role,
+      permissions: role === 'admin' ? ['manage_users', 'manage_products', 'manage_orders', 'view_analytics', 'system_settings'] : []
+    });
+
     // Save additional user data to Firestore
     await adminDb.collection('users').doc(userRecord.uid).set({
       email,
@@ -164,7 +170,8 @@ export async function POST(request: NextRequest) {
       role,
       createdAt: new Date(),
       createdBy: user.uid,
-      isActive: true
+      isActive: true,
+      permissions: role === 'admin' ? ['manage_users', 'manage_products', 'manage_orders', 'view_analytics', 'system_settings'] : []
     });
 
     return NextResponse.json({

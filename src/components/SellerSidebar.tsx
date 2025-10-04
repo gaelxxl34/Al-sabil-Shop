@@ -4,7 +4,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FiHome, FiUsers, FiShoppingBag, FiClipboard, FiLogOut, FiBarChart } from "react-icons/fi";
+import { FiHome, FiUsers, FiShoppingBag, FiClipboard, FiLogOut, FiBarChart, FiDollarSign } from "react-icons/fi";
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -17,6 +17,7 @@ const navLinks = [
   { href: "/seller/users", label: "Customers", icon: <FiUsers className="w-5 h-5" /> },
   { href: "/seller/products", label: "Products", icon: <FiShoppingBag className="w-5 h-5" /> },
   { href: "/seller/orders", label: "Orders", icon: <FiClipboard className="w-5 h-5" /> },
+  { href: "/seller/transactions", label: "Transactions", icon: <FiDollarSign className="w-5 h-5" /> },
   { href: "/seller/reports", label: "Reports", icon: <FiBarChart className="w-5 h-5" /> },
 ];
 

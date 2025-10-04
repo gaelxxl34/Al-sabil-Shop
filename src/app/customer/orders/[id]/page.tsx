@@ -94,6 +94,10 @@ export default function CustomerOrderDetailPage() {
     });
   };
 
+  const formatOrderId = (orderId: string) => {
+    return `#${orderId.slice(-8).toUpperCase()}`;
+  };
+
   const generateInvoiceNumber = (order: Order) => {
     const date = new Date(order.createdAt);
     const year = date.getFullYear();
@@ -148,7 +152,7 @@ export default function CustomerOrderDetailPage() {
             </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
-                Order #{order.id.slice(-8).toUpperCase()}
+                Order {formatOrderId(order.id)}
               </h1>
               <p className="text-gray-600">Placed {formatDate(order.createdAt)}</p>
             </div>

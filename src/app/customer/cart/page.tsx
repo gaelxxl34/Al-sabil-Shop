@@ -3,6 +3,7 @@
 
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiShoppingCart, FiPlus, FiMinus, FiTrash2, FiArrowLeft, FiCreditCard } from "react-icons/fi";
@@ -15,6 +16,7 @@ import ProductImage from "@/components/ProductImage";
 export default function CustomerCart() {
   const router = useRouter();
   const { state, removeItem, updateQuantity, clearCart, getCartSummary, getItemCount, isHydrated } = useCart();
+  const [editingQuantity, setEditingQuantity] = React.useState<Record<string, string>>({});
 
   const cartSummary = getCartSummary();
   const itemCount = getItemCount();
@@ -39,6 +41,40 @@ export default function CustomerCart() {
     
     // Redirect to checkout page for order confirmation
     router.push('/customer/checkout');
+  };
+
+  const handleQuantityChange = (itemId: string, value: string) => {
+    // Allow empty string for user to clear and type new value
+    setEditingQuantity(prev => ({
+      ...prev,
+      [itemId]: value
+    }));
+  };
+
+  const handleQuantityBlur = (itemId: string) => {
+    const value = editingQuantity[itemId];
+    if (value !== undefined) {
+      const numValue = parseInt(value);
+      if (!isNaN(numValue) && numValue > 0) {
+        updateQuantity(itemId, numValue);
+      }
+      // Clear editing state
+      setEditingQuantity(prev => {
+        const newState = { ...prev };
+        delete newState[itemId];
+        return newState;
+      });
+    }
+  };
+
+  const handleQuantityKeyDown = (itemId: string, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  const getDisplayQuantity = (itemId: string, actualQuantity: number) => {
+    return editingQuantity[itemId] !== undefined ? editingQuantity[itemId] : actualQuantity.toString();
   };
 
   return (
@@ -148,7 +184,20 @@ export default function CustomerCart() {
                             >
                               <FiMinus className="w-3 h-3 sm:w-4 sm:h-4 text-gray-700" />
                             </button>
-                            <span className="font-bold text-base sm:text-lg min-w-[2rem] sm:min-w-[3rem] text-center text-gray-900 px-1 sm:px-2">{item.quantity || 1}</span>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                value={getDisplayQuantity(item.id, item.quantity || 1)}
+                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                onBlur={() => handleQuantityBlur(item.id)}
+                                onKeyDown={(e) => handleQuantityKeyDown(item.id, e)}
+                                min="1"
+                                className="font-bold text-base sm:text-lg w-16 sm:w-20 text-center text-gray-900 bg-transparent border-none focus:outline-none focus:ring-0"
+                              />
+                              <span className="text-xs sm:text-sm text-gray-600 font-medium whitespace-nowrap">
+                                {item.unit || 'unit'}{(item.quantity || 1) !== 1 ? 's' : ''}
+                              </span>
+                            </div>
                             <button
                               onClick={() => updateQuantity(item.id, (item.quantity || 1) + 1)}
                               className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition-colors shadow-sm"

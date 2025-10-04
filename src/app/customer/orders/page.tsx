@@ -78,6 +78,10 @@ const formatDate = (dateString: string) => {
   });
 };
 
+const formatOrderId = (orderId: string) => {
+  return `#${orderId.slice(-8).toUpperCase()}`;
+};
+
 const convertOrderItems = (order: Order) => {
   return order.items.map(item => ({
     ...item,
@@ -173,7 +177,7 @@ export default function CustomerOrders() {
     if (!showInvoiceModal || !selectedOrder) return null;
 
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-lg shadow-lg max-w-5xl w-full max-h-[90vh] overflow-y-auto">
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
@@ -347,7 +351,7 @@ export default function CustomerOrders() {
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                           <div>
-                            <h3 className="font-bold text-base sm:text-lg text-gray-900">{order.id}</h3>
+                            <h3 className="font-bold text-base sm:text-lg text-gray-900">{formatOrderId(order.id)}</h3>
                             <p className="text-gray-600 text-xs sm:text-sm">Placed on {formatDate(order.createdAt)}</p>
                           </div>
                           <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs sm:text-sm font-medium border ${statusConfig[order.status as keyof typeof statusConfig].color}`}>

@@ -5,9 +5,11 @@ import Link from 'next/link';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerGuard from '@/components/SellerGuard';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { useAuth } from '@/components/AuthProvider';
-import { orderApi } from '@/lib/api-client';
+import { orderApi, customerApi } from '@/lib/api-client';
 import { Order } from '@/types/cart';
+import { Customer } from '@/types/customer';
 import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX } from 'react-icons/fi';
 import { Skeleton } from '@/components/SkeletonLoader';
 import { useToast } from '@/contexts/ToastContext';
@@ -81,6 +83,7 @@ export default function SellerOrdersPage() {
   const { showToast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [customers, setCustomers] = useState<Record<string, Customer>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -89,6 +92,22 @@ export default function SellerOrdersPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'credit' | 'other'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  
+  // Delete confirmation modal state
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    orderId: string | null;
+    orderNumber: string;
+    customerName: string;
+    status: string;
+  }>({
+    isOpen: false,
+    orderId: null,
+    orderNumber: '',
+    customerName: '',
+    status: ''
+  });
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
 
   const hasFetchedInitialRef = useRef(false); // Prevent duplicate initial fetch (e.g. React Strict Mode)
 
@@ -112,6 +131,26 @@ export default function SellerOrdersPage() {
       if (response.success && response.data) {
         setOrders(response.data);
         console.log('✅ Orders loaded successfully:', response.data.length, 'orders');
+        
+        // Fetch customer data for all unique customer IDs
+        const uniqueCustomerIds = [...new Set(response.data.map(order => order.customerId))];
+        const customerData: Record<string, Customer> = {};
+        
+        await Promise.all(
+          uniqueCustomerIds.map(async (customerId) => {
+            try {
+              const customerResponse = await customerApi.getCustomer(customerId);
+              if (customerResponse.success && customerResponse.data) {
+                customerData[customerId] = customerResponse.data;
+              }
+            } catch (error) {
+              console.error(`Error fetching customer ${customerId}:`, error);
+            }
+          })
+        );
+        
+        setCustomers(customerData);
+        console.log('✅ Customer data loaded:', Object.keys(customerData).length, 'customers');
       } else {
         console.log('⚠️ No orders data in response');
         setOrders([]);
@@ -189,11 +228,11 @@ export default function SellerOrdersPage() {
       
       // Get order details for user-friendly message
       const order = orders.find(o => o.id === orderId);
-      const orderNumber = `#${orderId.slice(-6).toUpperCase()}`;
-      const firstItemName = order?.items?.[0]?.name || 'order';
+      const orderNumber = formatOrderId(orderId);
+      const customerName = order ? getCustomerName(order.customerId) : 'order';
       
       showToastNotification(
-        `Order ${orderNumber} for ${firstItemName} status updated to ${newStatus}`, 
+        `Order ${orderNumber} for ${customerName} status updated to ${newStatus}`, 
         'success'
       );
       await fetchOrders(true); // Force refresh orders
@@ -225,9 +264,10 @@ export default function SellerOrdersPage() {
         paymentNotes
       });
 
-      const orderNumber = `#${paymentModalOrder.id.slice(-6).toUpperCase()}`;
+      const orderNumber = formatOrderId(paymentModalOrder.id);
+      const customerName = getCustomerName(paymentModalOrder.customerId);
       showToastNotification(
-        `Payment of €${amount.toFixed(2)} recorded for order ${orderNumber}`, 
+        `Payment of €${amount.toFixed(2)} recorded for order ${orderNumber} (${customerName})`, 
         'success'
       );
 
@@ -255,19 +295,40 @@ export default function SellerOrdersPage() {
 
   const handleDeleteOrder = async (orderId: string, orderNumber?: string) => {
     const order = orders.find(o => o.id === orderId);
-    const displayNumber = orderNumber || `#${orderId.slice(-6).toUpperCase()}`;
-    const firstItemName = order?.items?.[0]?.name || 'order';
+    const displayNumber = orderNumber || formatOrderId(orderId);
+    const customerName = order ? getCustomerName(order.customerId) : 'customer';
+    const statusText = order ? order.status : '';
     
-    if (!confirm(`Are you sure you want to delete ${displayNumber} for ${firstItemName}? This action cannot be undone.`)) {
-      return;
-    }
+    // Open confirmation modal
+    setDeleteConfirmation({
+      isOpen: true,
+      orderId: orderId,
+      orderNumber: displayNumber,
+      customerName: customerName,
+      status: statusText
+    });
+  };
 
+  const confirmDeleteOrder = async () => {
+    if (!deleteConfirmation.orderId) return;
+
+    setIsDeletingOrder(true);
     try {
-      await orderApi.deleteOrder(orderId);
+      await orderApi.deleteOrder(deleteConfirmation.orderId);
       showToastNotification(
-        `Order ${displayNumber} for ${firstItemName} has been deleted successfully`, 
+        `Order ${deleteConfirmation.orderNumber} for ${deleteConfirmation.customerName} has been deleted successfully`, 
         'success'
       );
+      
+      // Close modal and reset state
+      setDeleteConfirmation({
+        isOpen: false,
+        orderId: null,
+        orderNumber: '',
+        customerName: '',
+        status: ''
+      });
+      
       await fetchOrders(true); // Force refresh orders list
     } catch (error: unknown) {
       console.error('Error deleting order:', error);
@@ -276,9 +337,7 @@ export default function SellerOrdersPage() {
       let errorMessage = 'Failed to delete order. Please try again.';
       
       const errorObj = error as { status?: number; message?: string };
-      if (errorObj.status === 400) {
-        errorMessage = 'Cannot delete orders that are already processed.';
-      } else if (errorObj.status === 403) {
+      if (errorObj.status === 403) {
         errorMessage = 'You do not have permission to delete this order.';
       } else if (errorObj.status === 404) {
         errorMessage = 'Order not found.';
@@ -287,7 +346,19 @@ export default function SellerOrdersPage() {
       }
       
       showToastNotification(errorMessage, 'error');
+    } finally {
+      setIsDeletingOrder(false);
     }
+  };
+
+  const cancelDeleteOrder = () => {
+    setDeleteConfirmation({
+      isOpen: false,
+      orderId: null,
+      orderNumber: '',
+      customerName: '',
+      status: ''
+    });
   };
 
 
@@ -295,6 +366,18 @@ export default function SellerOrdersPage() {
   const filteredOrders = selectedStatus === 'all' 
     ? orders 
     : orders.filter(order => order.status === selectedStatus);
+
+  const getCustomerName = (customerId: string) => {
+    const customer = customers[customerId];
+    if (customer) {
+      return customer.businessName || customer.contactPerson || `Customer ${customerId.slice(-4)}`;
+    }
+    return `Customer ${customerId.slice(-4)}`;
+  };
+
+  const formatOrderId = (orderId: string) => {
+    return `#${orderId.slice(-8).toUpperCase()}`;
+  };
 
   const getAvailableActions = (order: Order) => {
     const actions = [];
@@ -370,22 +453,18 @@ export default function SellerOrdersPage() {
         break;
     }
 
-
-
-    // Add delete button only for pending or cancelled orders
-    if (['pending', 'cancelled'].includes(order.status)) {
-      actions.push(
-        <button
-          key="delete"
-          onClick={() => handleDeleteOrder(order.id, `#${order.id.slice(-6).toUpperCase()}`)}
-          className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-          title="Delete order"
-        >
-          <FiTrash2 className="inline mr-1" />
-          Delete
-        </button>
-      );
-    }
+    // Add delete button for all orders (always available)
+    actions.push(
+      <button
+        key="delete"
+        onClick={() => handleDeleteOrder(order.id, formatOrderId(order.id))}
+        className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+        title="Delete order"
+      >
+        <FiTrash2 className="inline mr-1" />
+        Delete
+      </button>
+    );
 
     return actions;
   };
@@ -625,8 +704,8 @@ export default function SellerOrdersPage() {
                 <tbody className="bg-white divide-y divide-gray-100">
                   {filteredOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-4 font-mono text-sm text-gray-900">{order.id}</td>
-                      <td className="px-4 py-4 text-gray-800 font-medium">Customer {order.customerId.slice(-4)}</td>
+                      <td className="px-4 py-4 font-mono text-sm text-gray-900">{formatOrderId(order.id)}</td>
+                      <td className="px-4 py-4 text-gray-800 font-medium">{getCustomerName(order.customerId)}</td>
                       <td className="px-4 py-4 text-gray-700 text-sm">
                         <div>{formatDate(order.createdAt)}</div>
                         {order.deliveryDate && (
@@ -685,11 +764,11 @@ export default function SellerOrdersPage() {
 
       {/* Payment Modal */}
       {paymentModalOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">
-                Record Payment - Order #{paymentModalOrder.id.slice(-6).toUpperCase()}
+                Record Payment - Order {formatOrderId(paymentModalOrder.id)}
               </h3>
               <button
                 onClick={() => setPaymentModalOrder(null)}
@@ -779,6 +858,33 @@ export default function SellerOrdersPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={deleteConfirmation.isOpen}
+        title="Delete Order?"
+        message="Are you sure you want to delete this order? This action cannot be undone."
+        confirmText="Delete Order"
+        cancelText="Cancel"
+        type="danger"
+        isLoading={isDeletingOrder}
+        onConfirm={confirmDeleteOrder}
+        onCancel={cancelDeleteOrder}
+        details={[
+          { label: 'Order ID', value: <span className="font-mono">{deleteConfirmation.orderNumber}</span> },
+          { label: 'Customer', value: deleteConfirmation.customerName },
+          { 
+            label: 'Status', 
+            value: (
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                statusConfig[deleteConfirmation.status as OrderStatus]?.color || 'bg-gray-100 text-gray-800'
+              }`}>
+                {deleteConfirmation.status}
+              </span>
+            )
+          }
+        ]}
+      />
       </div>
     </SellerGuard>
   );

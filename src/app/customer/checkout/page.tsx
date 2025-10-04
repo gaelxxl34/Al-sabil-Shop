@@ -111,7 +111,7 @@ export default function CheckoutPage() {
       // Create the order
       const orderResponse = await orderApi.createOrder(orderData);
       const orderId = orderResponse.data.id;
-      const orderNumber = `#${orderId.slice(-6).toUpperCase()}`;
+      const orderNumber = `#${orderId.slice(-8).toUpperCase()}`;
       
       // Show success message with user-friendly details
       showToast({

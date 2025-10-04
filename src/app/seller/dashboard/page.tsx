@@ -182,14 +182,17 @@ export default function SellerDashboard() {
 			const customer = dashboardData.customers.find(c => c.id === order.customerId);
 			const customerName = customer?.businessName || customer?.contactPerson || `Customer ${order.customerId?.slice(0, 8)}`;
 			
-			return {
-				id: order.id,
-				customer: customerName,
-				date: new Date(order.createdAt).toLocaleDateString(),
-				status: order.status === 'delivered' ? 'Completed' : 'Pending',
-				total: `$${order.total?.toFixed(2) || '0.00'}`,
-			};
-		});
+		return {
+			id: order.id,
+			customer: customerName,
+			date: new Date(order.createdAt).toLocaleDateString(),
+			status: order.status === 'delivered' ? 'Completed' : 'Pending',
+			total: `€${order.total?.toFixed(2) || '0.00'}`,
+		};
+	});	// Helper function to format order IDs consistently (8 characters)
+	const formatOrderId = (orderId: string) => {
+		return `#${orderId.slice(-8).toUpperCase()}`;
+	};
 	
 	// Auto refresh has been removed - users will need to manually refresh the page
 	// or navigate away and back to see updates
@@ -324,7 +327,7 @@ export default function SellerDashboard() {
 											<div key={order.id} className="p-4 hover:bg-gray-50">
 												<div className="flex justify-between items-start mb-2">
 													<div className="font-mono text-sm font-semibold text-gray-900">
-														#{order.id.slice(-6).toUpperCase()}
+														{formatOrderId(order.id)}
 													</div>
 													<span
 														className={`px-2 py-1 rounded-full text-xs font-semibold ${order.status === "Completed" ? STATUS_COMPLETED : STATUS_PENDING}`}
@@ -389,7 +392,7 @@ export default function SellerDashboard() {
 												}`}
 											>
 												<td className="py-3 px-4 font-mono text-gray-900 font-medium">
-													#{order.id.slice(-6).toUpperCase()}
+													{formatOrderId(order.id)}
 												</td>
 												<td className="py-3 px-4 text-gray-800 font-medium">
 													{order.customer}

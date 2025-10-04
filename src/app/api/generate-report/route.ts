@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
             <div class="summary-grid">
               <div class="summary-card">
                 <h3>Total Revenue</h3>
-                <div class="value">$${reportData.totalRevenue.toFixed(2)}</div>
+                <div class="value">€${reportData.totalRevenue.toFixed(2)}</div>
               </div>
               <div class="summary-card">
                 <h3>Total Orders</h3>
@@ -252,7 +252,7 @@ export async function POST(request: NextRequest) {
               </div>
               <div class="summary-card">
                 <h3>Average Order Value</h3>
-                <div class="value">$${reportData.averageOrderValue.toFixed(2)}</div>
+                <div class="value">€${reportData.averageOrderValue.toFixed(2)}</div>
               </div>
             </div>
 
@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
                     <tr>
                       <td>${product.name}</td>
                       <td>${product.quantity}</td>
-                      <td>$${product.revenue.toFixed(2)}</td>
+                      <td>€${product.revenue.toFixed(2)}</td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -298,7 +298,7 @@ export async function POST(request: NextRequest) {
                       <tr>
                         <td>${customer.name}</td>
                         <td>${customer.orderCount}</td>
-                        <td>$${customer.totalSpent.toFixed(2)}</td>
+                        <td>€${customer.totalSpent.toFixed(2)}</td>
                         <td>
                           <span class="status-badge status-${status}">
                             ${customer.status}
@@ -326,7 +326,7 @@ export async function POST(request: NextRequest) {
                   ${reportData.paymentStatus.map((status: PaymentStatus) => `
                     <tr>
                       <td>${status.name}</td>
-                      <td>$${status.value.toFixed(2)}</td>
+                      <td>€${status.value.toFixed(2)}</td>
                       <td>${status.percentage.toFixed(1)}%</td>
                     </tr>
                   `).join('')}
