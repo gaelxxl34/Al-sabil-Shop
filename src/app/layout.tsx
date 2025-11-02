@@ -36,10 +36,10 @@ export const metadata: Metadata = {
     siteName: "Al-Sabil Ordering App",
     images: [
       {
-        url: "/opengraph-image.png",
+        url: "/login.png",
         width: 1200,
         height: 630,
-        alt: "Al-Sabil Logo",
+        alt: "Al-Sabil Ordering App",
       },
     ],
     locale: "en_US",
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Al-Sabil Ordering App",
     description: "Wholesale ordering platform for Al-Sabil products",
-    images: ["/twitter-image.png"],
+    images: ["/login.png"],
     creator: "@AlSabil",
   },
   robots: {
