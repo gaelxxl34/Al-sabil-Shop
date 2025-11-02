@@ -447,19 +447,32 @@ export async function POST(request: NextRequest) {
 
     console.log('Launching Puppeteer...');
     // Generate PDF using Puppeteer with production-friendly config
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ]
-    });
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu',
+          '--disable-extensions'
+        ],
+        // Support for custom Chrome path in production
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
+                       process.env.CHROME_BIN || 
+                       undefined
+      });
+      console.log('Puppeteer launched successfully');
+    } catch (launchError) {
+      console.error('Failed to launch Puppeteer:', launchError);
+      console.error('Puppeteer path:', process.env.PUPPETEER_EXECUTABLE_PATH);
+      throw new Error(`Puppeteer launch failed: ${launchError instanceof Error ? launchError.message : String(launchError)}`);
+    }
 
     console.log('Creating new page...');
     const page = await browser.newPage();
