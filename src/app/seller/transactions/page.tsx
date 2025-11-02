@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
-import { FiMenu, FiPlus, FiDollarSign, FiFilter, FiX, FiEye, FiUser, FiCheckCircle, FiPackage } from 'react-icons/fi';
+import { FiMenu, FiPlus, FiDollarSign, FiFilter, FiX, FiEye, FiUser, FiCheckCircle, FiPackage, FiTrash2 } from 'react-icons/fi';
 import { Transaction, CreateTransactionInput } from '@/types/transaction';
 import { Customer } from '@/types/customer';
 import { Order } from '@/types/cart';
@@ -57,6 +57,9 @@ function TransactionsContent() {
   const [showBulkPaymentModal, setShowBulkPaymentModal] = useState(false);
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<CustomerPaymentInfo | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
+  const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
 
   // Filters
   const [selectedCustomer, setSelectedCustomer] = useState('');
@@ -97,13 +100,6 @@ function TransactionsContent() {
   }, [selectedCustomer, selectedPaymentMethod, startDate, endDate, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    console.log('Data updated, recalculating customer payment info...');
-    console.log('Current data state:', {
-      customers: customers.length,
-      orders: orders.length,
-      transactions: transactions.length
-    });
-    
     if (customers.length > 0 && orders.length > 0) {
       calculateCustomerPaymentInfo();
     }
@@ -112,19 +108,12 @@ function TransactionsContent() {
   const fetchInitialData = useCallback(async () => {
     try {
       setIsLoading(true);
-      console.log('Fetching initial data...');
       
       const [customersResult, ordersResult, transactionsResult] = await Promise.allSettled([
         fetchCustomers(),
         fetchOrders(),
         fetchTransactions()
       ]);
-
-      console.log('Data fetch results:', {
-        customers: customersResult.status,
-        orders: ordersResult.status,
-        transactions: transactionsResult.status
-      });
 
       // Calculate customer payment info after all data is loaded
       setTimeout(() => {
@@ -139,13 +128,13 @@ function TransactionsContent() {
 
   const fetchCustomers = async () => {
     try {
-      console.log('Fetching customers...');
       const response = await fetch('/api/customers');
       if (response.ok) {
         const data = await response.json();
-        console.log('Customers fetched:', data.customers?.length || 0);
-        setCustomers(data.customers || []);
-        return data.customers || [];
+        // API returns { success: true, data: [...], total: number }
+        const customersList = data.data || data.customers || [];
+        setCustomers(customersList);
+        return customersList;
       } else {
         console.error('Failed to fetch customers:', response.status);
         return [];
@@ -158,12 +147,10 @@ function TransactionsContent() {
 
   const fetchOrders = async () => {
     try {
-      console.log('Fetching orders...');
       const response = await fetch('/api/orders');
       if (response.ok) {
         const data = await response.json();
         const ordersData = data.success && data.data ? data.data : [];
-        console.log('Orders fetched:', ordersData.length);
         setOrders(ordersData);
         return ordersData;
       } else {
@@ -177,27 +164,15 @@ function TransactionsContent() {
   };
 
   const calculateCustomerPaymentInfo = useCallback(() => {
-    console.log('Calculating customer payment info...', { 
-      customersCount: customers.length, 
-      ordersCount: orders.length,
-      transactionsCount: transactions.length
-    });
-    
     if (customers.length === 0 || orders.length === 0) {
-      console.log('Missing data for calculation');
       return;
     }
 
     const customerInfo: CustomerPaymentInfo[] = customers.map(customer => {
-      // Get all orders for this customer (not just delivered ones)
+      // Get all orders for this customer
       const customerOrders = orders.filter(order => 
         order.customerId === customer.id
       );
-
-      console.log(`Customer ${customer.businessName}:`, {
-        totalOrders: customerOrders.length,
-        orderStatuses: customerOrders.map(o => o.status)
-      });
 
       const totalOrderValue = customerOrders.reduce((sum, order) => sum + order.total, 0);
       const totalPaid = customerOrders.reduce((sum, order) => sum + (order.totalPaid || 0), 0);
@@ -209,7 +184,7 @@ function TransactionsContent() {
         ? customerTransactions.sort((a, b) => b.transactionDate.localeCompare(a.transactionDate))[0].transactionDate
         : undefined;
 
-      const customerData = {
+      return {
         customerId: customer.id,
         customerName: customer.contactPerson || customer.businessName,
         businessName: customer.businessName,
@@ -220,12 +195,7 @@ function TransactionsContent() {
         orders: customerOrders,
         lastPaymentDate
       };
-
-      console.log(`Customer ${customer.businessName} data:`, customerData);
-      return customerData;
     }).filter(info => info.totalOrders > 0); // Only show customers with orders
-
-    console.log('Final customer payment info:', customerInfo);
 
     // Sort by highest outstanding amount first
     customerInfo.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
@@ -238,7 +208,6 @@ function TransactionsContent() {
 
   const fetchTransactions = useCallback(async () => {
     try {
-      console.log('Fetching transactions...');
       const params = new URLSearchParams();
       if (selectedCustomer) params.append('customerId', selectedCustomer);
       if (selectedPaymentMethod) params.append('paymentMethod', selectedPaymentMethod);
@@ -248,17 +217,11 @@ function TransactionsContent() {
       const response = await fetch(`/api/transactions?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
-        console.log('Transactions fetched:', data.transactions?.length || 0);
         setTransactions(data.transactions || []);
         return data.transactions || [];
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to fetch transactions:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData.error || 'Unknown error',
-          details: errorData.details
-        });
+        console.error('Failed to fetch transactions:', errorData.error || 'Unknown error');
         
         if (response.status === 403) {
           alert('Access denied. Please logout and login again to refresh your session.');
@@ -459,6 +422,43 @@ function TransactionsContent() {
     }
   };
 
+  const handleDeleteClick = (transaction: Transaction) => {
+    setTransactionToDelete(transaction);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!transactionToDelete) return;
+
+    try {
+      setDeletingTransactionId(transactionToDelete.id);
+      const response = await fetch(`/api/transactions/${transactionToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        alert('Transaction deleted successfully!');
+        setShowDeleteConfirm(false);
+        setTransactionToDelete(null);
+        // Refresh data
+        await fetchInitialData();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to delete transaction');
+      }
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      alert('Failed to delete transaction');
+    } finally {
+      setDeletingTransactionId(null);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+    setTransactionToDelete(null);
+  };
+
   const clearFilters = () => {
     setSelectedCustomer('');
     setSelectedPaymentMethod('');
@@ -518,11 +518,18 @@ function TransactionsContent() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setShowAddForm(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                onClick={() => {
+                  if (customers.length === 0) {
+                    alert('Please wait for customers to load before recording a transaction.');
+                    return;
+                  }
+                  setShowAddForm(true);
+                }}
+                disabled={isLoading}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FiPlus className="w-5 h-5" />
-                <span className="hidden sm:inline">Record Transaction</span>
+                <span className="hidden sm:inline">{isLoading ? 'Loading...' : 'Record Transaction'}</span>
               </button>
             </div>
           </div>
@@ -790,18 +797,19 @@ function TransactionsContent() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Reference</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Amount</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Notes</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                          <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                             Loading transactions...
                           </td>
                         </tr>
                       ) : transactions.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                          <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                             No transactions found. Record your first payment to get started.
                           </td>
                         </tr>
@@ -828,6 +836,20 @@ function TransactionsContent() {
                             <td className="px-4 py-3 text-sm text-gray-600">
                               {transaction.notes || '-'}
                             </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => handleDeleteClick(transaction)}
+                                disabled={deletingTransactionId === transaction.id}
+                                className="text-red-600 hover:text-red-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Delete transaction"
+                              >
+                                {deletingTransactionId === transaction.id ? (
+                                  <span className="inline-block animate-spin">⏳</span>
+                                ) : (
+                                  <FiTrash2 className="w-4 h-4" />
+                                )}
+                              </button>
+                            </td>
                           </tr>
                         ))
                       )}
@@ -842,8 +864,17 @@ function TransactionsContent() {
 
       {/* Bulk Payment Modal */}
       {showBulkPaymentModal && selectedCustomerForPayment && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowBulkPaymentModal(false);
+            setSelectedCustomerForPayment(null);
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">
@@ -854,6 +885,7 @@ function TransactionsContent() {
                     setShowBulkPaymentModal(false);
                     setSelectedCustomerForPayment(null);
                   }}
+                  type="button"
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <FiX className="w-6 h-6" />
@@ -1049,13 +1081,20 @@ function TransactionsContent() {
 
       {/* Add Single Transaction Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddForm(false)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">Record Single Transaction</h2>
                 <button
                   onClick={() => setShowAddForm(false)}
+                  type="button"
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <FiX className="w-6 h-6" />
@@ -1071,19 +1110,70 @@ function TransactionsContent() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Customer <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={formData.customerId}
-                  onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                >
-                  <option value="">Select customer</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.businessName}
-                    </option>
-                  ))}
-                </select>
+                {customers.length === 0 ? (
+                  <div className="w-full px-3 py-2 border border-yellow-300 bg-yellow-50 rounded-lg text-sm text-yellow-800">
+                    Loading customers... If this persists, please refresh the page.
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={formData.customerId}
+                      onChange={(e) => {
+                        setFormData({ ...formData, customerId: e.target.value });
+                      }}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    >
+                      <option value="">Select customer</option>
+                      
+                      {/* Customers with outstanding balance - Priority */}
+                      {(() => {
+                        const customersWithBalance = customerPaymentInfo.filter(info => info.totalOutstanding > 0);
+                        const customersWithOrders = customerPaymentInfo.filter(info => info.totalOutstanding === 0 && info.totalOrders > 0);
+                        const customersWithoutOrders = customers.filter(c => 
+                          !customerPaymentInfo.find(info => info.customerId === c.id)
+                        );
+                        
+                        return (
+                          <>
+                            {customersWithBalance.length > 0 && (
+                              <optgroup label={`🔴 Customers with Outstanding Balance (${customersWithBalance.length})`}>
+                                {customersWithBalance.map((info) => (
+                                  <option key={info.customerId} value={info.customerId}>
+                                    {info.businessName} - Outstanding: {formatCurrency(info.totalOutstanding)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            
+                            {customersWithOrders.length > 0 && (
+                              <optgroup label={`✅ Customers with Paid Orders (${customersWithOrders.length})`}>
+                                {customersWithOrders.map((info) => (
+                                  <option key={info.customerId} value={info.customerId}>
+                                    {info.businessName} - All Paid ({info.totalOrders} orders)
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            
+                            {customersWithoutOrders.length > 0 && (
+                              <optgroup label={`⚪ Customers without Orders (${customersWithoutOrders.length})`}>
+                                {customersWithoutOrders.map((customer) => (
+                                  <option key={customer.id} value={customer.id}>
+                                    {customer.businessName} - No orders yet
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      💡 Tip: Customers with outstanding balances are shown first
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1180,6 +1270,71 @@ function TransactionsContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && transactionToDelete && (
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={handleDeleteCancel}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <FiTrash2 className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Transaction</h3>
+                  <p className="text-sm text-gray-600">This action cannot be undone</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Customer:</span>
+                  <span className="font-medium text-gray-900">{transactionToDelete.customerName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Amount:</span>
+                  <span className="font-semibold text-green-600">{formatCurrency(transactionToDelete.amount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Date:</span>
+                  <span className="text-gray-900">{formatDate(transactionToDelete.transactionDate)}</span>
+                </div>
+                {transactionToDelete.reference && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Reference:</span>
+                    <span className="text-gray-900">{transactionToDelete.reference}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleDeleteCancel}
+                  disabled={deletingTransactionId !== null}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteConfirm}
+                  disabled={deletingTransactionId !== null}
+                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deletingTransactionId ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,4 +1,17 @@
 // src/app/api/reports/route.ts
+/**
+ * Financial Reports API
+ * 
+ * This API generates comprehensive financial reports synchronized with the transactions page.
+ * 
+ * DATA SYNCHRONIZATION:
+ * - Payment data is calculated from BOTH transactions collection and order.totalPaid
+ * - Transactions collection is the source of truth for payments (matches transaction page)
+ * - order.totalPaid is used as fallback for backward compatibility
+ * - We use Math.max() to ensure no payments are missed from either source
+ * 
+ * This ensures reports show the same payment data as the transactions page.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
@@ -124,6 +137,30 @@ export async function GET(request: NextRequest) {
       });
     });
 
+    // Fetch transactions for this seller to calculate actual payments
+    const transactionsQuery = adminDb.collection('transactions')
+      .where('sellerId', '==', targetSellerId)
+      .where('transactionDate', '>=', startDate.toISOString())
+      .where('transactionDate', '<=', endDate.toISOString());
+
+    const transactionsSnapshot = await transactionsQuery.get();
+    const transactions: Array<{
+      id: string;
+      customerId: string;
+      amount: number;
+      [key: string]: unknown;
+    }> = [];
+
+    transactionsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      transactions.push({
+        id: doc.id,
+        customerId: data.customerId,
+        amount: data.amount || 0,
+        ...data,
+      });
+    });
+
     // Calculate report data
     const reportData = {
       period,
@@ -132,11 +169,12 @@ export async function GET(request: NextRequest) {
       orders,
       customers,
       products,
-      summary: calculateSummary(orders, customers),
+      transactions,
+      summary: calculateSummary(orders, customers, transactions),
       trends: calculateTrends(orders, startDate, endDate),
       topProducts: calculateTopProducts(orders),
-      topCustomers: calculateTopCustomers(orders, customers),
-      paymentAnalysis: calculatePaymentAnalysis(orders),
+      topCustomers: calculateTopCustomers(orders, customers, transactions),
+      paymentAnalysis: calculatePaymentAnalysis(orders, transactions),
     };
 
     return NextResponse.json({
@@ -153,9 +191,22 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function calculateSummary(orders: Array<{ id: string; [key: string]: unknown }>, customers: Array<{ id: string; [key: string]: unknown }>) {
+function calculateSummary(
+  orders: Array<{ id: string; [key: string]: unknown }>, 
+  customers: Array<{ id: string; [key: string]: unknown }>,
+  transactions: Array<{ id: string; customerId: string; amount: number; [key: string]: unknown }>
+) {
   const totalRevenue = orders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-  const totalPaidAmount = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+  
+  // Calculate total paid from transactions (this is the source of truth)
+  const totalPaidFromTransactions = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+  
+  // Also include payments recorded directly on orders (for backward compatibility)
+  const totalPaidFromOrders = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+  
+  // Use the maximum of the two to ensure we don't miss any payments
+  const totalPaidAmount = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
+  
   const totalOutstanding = totalRevenue - totalPaidAmount;
   
   const totalOrders = orders.length;
@@ -240,11 +291,24 @@ function calculateTopProducts(orders: Array<{ id: string; [key: string]: unknown
     .slice(0, 10);
 }
 
-function calculateTopCustomers(orders: Array<{ id: string; [key: string]: unknown }>, customers: Array<{ id: string; [key: string]: unknown }>) {
+function calculateTopCustomers(
+  orders: Array<{ id: string; [key: string]: unknown }>, 
+  customers: Array<{ id: string; [key: string]: unknown }>,
+  transactions: Array<{ id: string; customerId: string; amount: number; [key: string]: unknown }>
+) {
   const customerStats = customers.map(customer => {
     const customerOrders = orders.filter(order => order.customerId === customer.id);
     const totalSpent = customerOrders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-    const totalPaid = customerOrders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+    
+    // Calculate total paid from transactions for this customer
+    const customerTransactions = transactions.filter(t => t.customerId === customer.id);
+    const totalPaidFromTransactions = customerTransactions.reduce((sum, t) => sum + t.amount, 0);
+    
+    // Also check order.totalPaid for backward compatibility
+    const totalPaidFromOrders = customerOrders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+    
+    // Use the maximum to ensure we capture all payments
+    const totalPaid = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
     const totalOutstanding = totalSpent - totalPaid;
     
     const paidOrdersCount = customerOrders.filter(order => order.paymentStatus === 'paid').length;
@@ -280,9 +344,20 @@ function calculateTopCustomers(orders: Array<{ id: string; [key: string]: unknow
   return customerStats;
 }
 
-function calculatePaymentAnalysis(orders: Array<{ id: string; [key: string]: unknown }>) {
+function calculatePaymentAnalysis(
+  orders: Array<{ id: string; [key: string]: unknown }>,
+  transactions: Array<{ id: string; customerId: string; amount: number; [key: string]: unknown }>
+) {
   const totalRevenue = orders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-  const totalPaidAmount = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+  
+  // Calculate total paid from transactions (source of truth)
+  const totalPaidFromTransactions = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+  
+  // Also check orders for backward compatibility
+  const totalPaidFromOrders = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+  
+  // Use maximum to capture all payments
+  const totalPaidAmount = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
   const totalOutstanding = totalRevenue - totalPaidAmount;
 
   // Break down by payment status

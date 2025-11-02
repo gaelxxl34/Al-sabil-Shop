@@ -25,7 +25,8 @@ import {
   FiXCircle,
   FiAlertTriangle,
   FiTrash2,
-  FiDollarSign
+  FiDollarSign,
+  FiList
 } from 'react-icons/fi';
 
 const statusConfig = {
@@ -78,6 +79,10 @@ export default function OrderDetailPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'credit' | 'other'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  
+  // Transaction history state
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   const fetchOrderData = useCallback(async () => {
     try {
@@ -91,6 +96,9 @@ export default function OrderDetailPage() {
       // Fetch customer data
       const customerResponse = await customerApi.getCustomer(orderData.customerId);
       setCustomer(customerResponse.data);
+      
+      // Fetch transaction history for this customer to show payment history
+      fetchTransactions(orderData.customerId);
     } catch (error) {
       console.error('Error fetching order:', error);
       showToastMessage('Error loading order data');
@@ -98,6 +106,25 @@ export default function OrderDetailPage() {
       setIsLoading(false);
     }
   }, [orderId]);
+
+  const fetchTransactions = async (customerId: string) => {
+    try {
+      setLoadingTransactions(true);
+      const response = await fetch(`/api/transactions?customerId=${customerId}`);
+      const data = await response.json();
+      if (data.transactions) {
+        // Sort by date (newest first)
+        const sortedTransactions = data.transactions.sort((a: any, b: any) => 
+          new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()
+        );
+        setTransactions(sortedTransactions);
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
 
   useEffect(() => {
     if (orderId) {
@@ -658,6 +685,65 @@ export default function OrderDetailPage() {
                       </p>
                     )}
                   </div>
+
+                  {/* Transaction History */}
+                  {transactions.length > 0 && (
+                    <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                      <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                        <FiList className="w-4 h-4" />
+                        Transaction History
+                      </h3>
+                      {loadingTransactions ? (
+                        <p className="text-sm text-gray-500">Loading transactions...</p>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {transactions.map((transaction) => (
+                            <div 
+                              key={transaction.id}
+                              className="flex items-start justify-between p-2 bg-white rounded border border-gray-200 text-sm"
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900">
+                                  €{transaction.amount.toFixed(2)}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {new Date(transaction.transactionDate).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </p>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  {transaction.paymentMethod === 'cash' ? 'Cash' :
+                                   transaction.paymentMethod === 'bank_transfer' ? 'Bank Transfer' :
+                                   transaction.paymentMethod === 'credit' ? 'Credit' : 'Other'}
+                                </p>
+                                {transaction.reference && (
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    Ref: {transaction.reference}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                  <FiCheckCircle className="w-3 h-3 mr-1" />
+                                  Paid
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-3 pt-3 border-t border-blue-200">
+                        <div className="flex justify-between text-sm font-semibold">
+                          <span className="text-gray-700">Total from Transactions:</span>
+                          <span className="text-green-600">
+                            €{transactions.reduce((sum, t) => sum + t.amount, 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Status Actions */}
                   {!isEditing && (

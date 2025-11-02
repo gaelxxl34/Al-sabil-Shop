@@ -120,7 +120,8 @@ export default function FloatingChatButton({
             if (data.success && data.conversations) {
               setConversations(data.conversations);
               
-              if (isOpen) {
+              // Only show conversation list if chat is open AND no conversation is selected
+              if (isOpen && !conversationId) {
                 setShowConversationList(true);
               }
               
@@ -143,7 +144,7 @@ export default function FloatingChatButton({
     // Refresh every 5 seconds (more frequent for better unread tracking)
     const interval = setInterval(initConversation, 5000);
     return () => clearInterval(interval);
-  }, [userId, userRole, isOpen]);
+  }, [userId, userRole, isOpen, conversationId]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -307,14 +308,18 @@ export default function FloatingChatButton({
       {/* Chat Window */}
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop - Semi-transparent overlay */}
           <div
-            className="fixed inset-0 bg-transparent z-40"
+            className="fixed inset-0 bg-black/10 backdrop-blur-[2px] z-40"
             onClick={() => setIsOpen(false)}
+            aria-label="Close chat"
           />
 
           {/* Chat Window */}
-          <div className="fixed bottom-24 right-4 md:right-6 z-50 w-[calc(100vw-2rem)] sm:w-96 max-w-md bg-white rounded-lg shadow-2xl overflow-hidden border border-gray-200 flex flex-col h-[500px]">
+          <div 
+            className="fixed bottom-24 right-4 md:right-6 z-50 w-[calc(100vw-2rem)] sm:w-96 max-w-md bg-white rounded-lg shadow-2xl overflow-hidden border border-gray-200 flex flex-col h-[500px]"
+            onClick={(e) => e.stopPropagation()}
+          >
             
             {/* SELLER: Conversation List View */}
             {userRole === 'seller' && showConversationList && (
@@ -350,7 +355,10 @@ export default function FloatingChatButton({
                         return (
                           <li
                             key={conversation.id}
-                            onClick={() => handleSelectConversation(conversation)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectConversation(conversation);
+                            }}
                             className="p-3 sm:p-4 hover:bg-gray-50 active:bg-gray-100 cursor-pointer transition-colors"
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -389,7 +397,10 @@ export default function FloatingChatButton({
                 <div className="bg-blue-600 text-white p-3 sm:p-4 flex items-center gap-3 flex-shrink-0">
                   {userRole === 'seller' && (
                     <button
-                      onClick={handleBackToList}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleBackToList();
+                      }}
                       className="text-white hover:text-gray-200 transition-colors"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

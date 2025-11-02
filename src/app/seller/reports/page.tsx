@@ -8,7 +8,9 @@ import {
   FiAlertCircle,  
   FiCheckCircle,
   FiFileText,
-  FiLoader
+  FiLoader,
+  FiArrowLeft,
+  FiDownload
 } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
@@ -59,6 +61,19 @@ interface CustomerPaymentStatus {
   status: 'good' | 'warning' | 'overdue';
 }
 
+interface CustomerInvoiceDetail {
+  orderId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string;
+  totalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  paymentMethod: string;
+  orderStatus: string;
+}
+
 // Color mapping for payment status: green for paid, red for unpaid
 const getPaymentStatusColor = (name: string) => {
   switch (name.toLowerCase()) {
@@ -80,6 +95,11 @@ function ReportsPageContent() {
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [customerPayments, setCustomerPayments] = useState<CustomerPaymentStatus[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  
+  // Individual Customer Report States
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerPaymentStatus | null>(null);
+  const [customerInvoices, setCustomerInvoices] = useState<CustomerInvoiceDetail[]>([]);
+  const [loadingCustomerDetails, setLoadingCustomerDetails] = useState(false);
 
   const loadReportData = useCallback(async () => {
     if (!user?.uid) {
@@ -161,6 +181,79 @@ function ReportsPageContent() {
   useEffect(() => {
     loadReportData();
   }, [loadReportData]);
+
+  const loadCustomerInvoiceDetails = async (customer: CustomerPaymentStatus) => {
+    setLoadingCustomerDetails(true);
+    setSelectedCustomer(customer);
+    
+    try {
+      // Fetch all orders for this customer
+      const ordersResponse = await fetch(`/api/orders?customerId=${customer.id}&sellerId=${user?.uid}`);
+      const ordersData = await ordersResponse.json();
+      
+      // Fetch all transactions for this customer to get accurate payment data
+      // This ensures the report shows the same payment data as the transactions page
+      const transactionsResponse = await fetch(`/api/transactions?customerId=${customer.id}`);
+      const transactionsData = await transactionsResponse.json();
+      
+      // Create a map of total payments per customer from transactions
+      const customerPayments = transactionsData.transactions?.reduce((sum: number, transaction: any) => {
+        return sum + (transaction.amount || 0);
+      }, 0) || 0;
+      
+      if (ordersData.success && ordersData.orders) {
+        // Transform orders into invoice details
+        const invoices: CustomerInvoiceDetail[] = ordersData.orders.map((order: any) => {
+          const invoiceDate = new Date(order.createdAt);
+          const dueDate = new Date(invoiceDate);
+          dueDate.setDate(dueDate.getDate() + 30);
+          
+          const generateInvoiceNumber = (orderId: string, createdAt: string) => {
+            const date = new Date(createdAt);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const orderSuffix = orderId.slice(-6).toUpperCase();
+            return `INV-${year}${month}-${orderSuffix}`;
+          };
+          
+          const totalAmount = order.total || (order.subtotal + order.deliveryFee);
+          
+          // Use order.totalPaid if available, otherwise use order.paidAmount for backward compatibility
+          const orderPaidAmount = order.totalPaid || order.paidAmount || 0;
+          
+          const outstandingAmount = totalAmount - orderPaidAmount;
+          
+          return {
+            orderId: order.id,
+            invoiceNumber: generateInvoiceNumber(order.id, order.createdAt),
+            invoiceDate: order.createdAt,
+            dueDate: dueDate.toISOString(),
+            totalAmount,
+            paidAmount: orderPaidAmount,
+            outstandingAmount,
+            paymentStatus: order.paymentStatus as 'paid' | 'partial' | 'unpaid',
+            paymentMethod: order.paymentMethod === 'credit' ? 'Credit Account' : 'Cash on Delivery',
+            orderStatus: order.status
+          };
+        });
+        
+        // Sort by date (newest first)
+        invoices.sort((a, b) => new Date(b.invoiceDate).getTime() - new Date(a.invoiceDate).getTime());
+        
+        setCustomerInvoices(invoices);
+      }
+    } catch (error) {
+      console.error('Error loading customer invoice details:', error);
+      alert('Failed to load customer details. Please try again.');
+    } finally {
+      setLoadingCustomerDetails(false);
+    }
+  };
+
+  const handleBackToOverview = () => {
+    setSelectedCustomer(null);
+    setCustomerInvoices([]);
+  };
 
   const generatePDF = async () => {
     if (!reportData) {
@@ -564,65 +657,263 @@ function ReportsPageContent() {
           )}
 
           {/* Customer Payment Status Table */}
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Customer Payment Status</h3>
-              <p className="text-sm text-gray-600 mt-1">Detailed payment tracking for all customers</p>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Total Orders</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Paid Amount</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Unpaid Amount</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Last Order</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {customerPayments.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium text-gray-900">{customer.name}</p>
-                          <p className="text-gray-500 text-xs">{customer.email}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="text-gray-900">{customer.totalOrders}</p>
-                          <p className="text-xs text-gray-500">
-                            {customer.paidOrders} paid
-                            {customer.partialOrders > 0 && `, ${customer.partialOrders} partial`}
-                            {customer.unpaidOrders > 0 && `, ${customer.unpaidOrders} pending`}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-medium text-green-600">
-                        €{customer.paidAmount.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 font-medium text-red-600">
-                        €{customer.unpaidAmount.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600">
-                        {customer.lastOrderDate ? format(new Date(customer.lastOrderDate), 'MMM dd, yyyy') : 'Never'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(customer.status)}`}>
-                          {getStatusIcon(customer.status)}
-                          {customer.status === 'good' ? 'Good Standing' : 
-                           customer.status === 'warning' ? 'Payment Due' : 'Overdue'}
-                        </span>
-                      </td>
+          {!selectedCustomer && (
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Customer Payment Status</h3>
+                <p className="text-sm text-gray-600 mt-1">Detailed payment tracking for all customers - Click "View Report" to see invoice-level details</p>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Total Orders</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Paid Amount</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Unpaid Amount</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Last Order</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {customerPayments.map((customer) => (
+                      <tr key={customer.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4">
+                          <div>
+                            <p className="font-medium text-gray-900">{customer.name}</p>
+                            <p className="text-gray-500 text-xs">{customer.email}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div>
+                            <p className="text-gray-900">{customer.totalOrders}</p>
+                            <p className="text-xs text-gray-500">
+                              {customer.paidOrders} paid
+                              {customer.partialOrders > 0 && `, ${customer.partialOrders} partial`}
+                              {customer.unpaidOrders > 0 && `, ${customer.unpaidOrders} pending`}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-medium text-green-600">
+                          €{customer.paidAmount.toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 font-medium text-red-600">
+                          €{customer.unpaidAmount.toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {customer.lastOrderDate ? format(new Date(customer.lastOrderDate), 'MMM dd, yyyy') : 'Never'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(customer.status)}`}>
+                            {getStatusIcon(customer.status)}
+                            {customer.status === 'good' ? 'Good Standing' : 
+                             customer.status === 'warning' ? 'Payment Due' : 'Overdue'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={() => loadCustomerInvoiceDetails(customer)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <FiFileText className="w-3.5 h-3.5" />
+                            View Report
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Individual Customer Report Detail View */}
+          {selectedCustomer && (
+            <div className="space-y-6">
+              {/* Back Button */}
+              <button
+                onClick={handleBackToOverview}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <FiArrowLeft className="w-5 h-5" />
+                <span className="font-medium">Back to Overview</span>
+              </button>
+
+              {/* Customer Header Card */}
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg p-6 shadow-lg">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold mb-1">{selectedCustomer.name}</h2>
+                    <p className="text-blue-100 text-sm">{selectedCustomer.email}</p>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                      <p className="text-xs text-blue-100 mb-1">Total Orders</p>
+                      <p className="text-2xl font-bold">{selectedCustomer.totalOrders}</p>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                      <p className="text-xs text-blue-100 mb-1">Total Amount</p>
+                      <p className="text-2xl font-bold">€{selectedCustomer.totalAmount.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                      <p className="text-xs text-blue-100 mb-1">Paid</p>
+                      <p className="text-2xl font-bold text-green-300">€{selectedCustomer.paidAmount.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
+                      <p className="text-xs text-blue-100 mb-1">Outstanding</p>
+                      <p className="text-2xl font-bold text-red-300">€{selectedCustomer.unpaidAmount.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invoice Details Table */}
+              {loadingCustomerDetails ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-12 flex items-center justify-center">
+                  <div className="text-center">
+                    <FiLoader className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600">Loading invoice details...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Invoice History</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Showing all {customerInvoices.length} invoice{customerInvoices.length !== 1 ? 's' : ''} for this customer
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        // Export to CSV functionality
+                        const csvContent = [
+                          ['Invoice #', 'Date', 'Due Date', 'Total Amount', 'Paid Amount', 'Outstanding', 'Payment Status', 'Payment Method', 'Order Status'].join(','),
+                          ...customerInvoices.map(inv => [
+                            inv.invoiceNumber,
+                            format(new Date(inv.invoiceDate), 'yyyy-MM-dd'),
+                            format(new Date(inv.dueDate), 'yyyy-MM-dd'),
+                            inv.totalAmount.toFixed(2),
+                            inv.paidAmount.toFixed(2),
+                            inv.outstandingAmount.toFixed(2),
+                            inv.paymentStatus,
+                            inv.paymentMethod,
+                            inv.orderStatus
+                          ].join(','))
+                        ].join('\n');
+                        
+                        const blob = new Blob([csvContent], { type: 'text/csv' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${selectedCustomer.name}-invoices-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <FiDownload className="w-4 h-4" />
+                      Export to CSV
+                    </button>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    {customerInvoices.length === 0 ? (
+                      <div className="p-12 text-center text-gray-500">
+                        <FiFileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                        <p className="text-lg font-medium">No invoices found</p>
+                        <p className="text-sm mt-1">This customer hasn't placed any orders yet.</p>
+                      </div>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice #</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice Date</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Due Date</th>
+                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Total Amount</th>
+                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Paid Amount</th>
+                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Outstanding</th>
+                            <th className="text-center py-3 px-4 font-semibold text-gray-700">Payment Status</th>
+                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Payment Method</th>
+                            <th className="text-center py-3 px-4 font-semibold text-gray-700">Order Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {customerInvoices.map((invoice) => (
+                            <tr key={invoice.orderId} className="hover:bg-gray-50">
+                              <td className="py-3 px-4">
+                                <span className="font-mono text-xs font-medium text-blue-600">
+                                  {invoice.invoiceNumber}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-gray-900">
+                                {format(new Date(invoice.invoiceDate), 'MMM dd, yyyy')}
+                              </td>
+                              <td className="py-3 px-4 text-gray-600">
+                                {format(new Date(invoice.dueDate), 'MMM dd, yyyy')}
+                              </td>
+                              <td className="py-3 px-4 text-right font-medium text-gray-900">
+                                €{invoice.totalAmount.toFixed(2)}
+                              </td>
+                              <td className="py-3 px-4 text-right font-medium text-green-600">
+                                €{invoice.paidAmount.toFixed(2)}
+                              </td>
+                              <td className="py-3 px-4 text-right font-medium text-red-600">
+                                €{invoice.outstandingAmount.toFixed(2)}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                  invoice.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                                  invoice.paymentStatus === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {invoice.paymentStatus === 'paid' ? 'Paid' :
+                                   invoice.paymentStatus === 'partial' ? 'Partial' : 'Unpaid'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-gray-600 text-xs">
+                                {invoice.paymentMethod}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                  invoice.orderStatus === 'delivered' ? 'bg-green-100 text-green-700' :
+                                  invoice.orderStatus === 'shipped' ? 'bg-blue-100 text-blue-700' :
+                                  invoice.orderStatus === 'processing' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {invoice.orderStatus.charAt(0).toUpperCase() + invoice.orderStatus.slice(1)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                          <tr>
+                            <td colSpan={3} className="py-4 px-4 text-right font-bold text-gray-900">
+                              TOTALS:
+                            </td>
+                            <td className="py-4 px-4 text-right font-bold text-gray-900">
+                              €{customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0).toFixed(2)}
+                            </td>
+                            <td className="py-4 px-4 text-right font-bold text-green-700">
+                              €{customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0).toFixed(2)}
+                            </td>
+                            <td className="py-4 px-4 text-right font-bold text-red-700">
+                              €{customerInvoices.reduce((sum, inv) => sum + inv.outstandingAmount, 0).toFixed(2)}
+                            </td>
+                            <td colSpan={3}></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>

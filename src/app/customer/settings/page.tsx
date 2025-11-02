@@ -790,7 +790,7 @@ export default function CustomerSettings() {
                   </div>
                   <div className="text-left">
                     <p className="font-semibold text-gray-900">Contact Support</p>
-                    <p className="text-sm text-gray-600">support@al-sabil.com</p>
+                    <p className="text-sm text-gray-600">alsabilmarketplace@gmail.com</p>
                   </div>
                 </div>
                 <FiChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />

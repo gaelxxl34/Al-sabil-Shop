@@ -3,6 +3,8 @@ import puppeteer from 'puppeteer';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
+import fs from 'fs';
+import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,8 +62,8 @@ export async function POST(request: NextRequest) {
       name: "AL SABIL MARKETPLACE LTD",
       address: "2 PORTERS ROAD",
       addressLine2: "COOLMINE IND EST., BLANCHARDSTOWN, DUBLIN 15, D15 PC9Y",
-      phone: "+353 86 305 5699",
-      email: "orders@al-sabil.com",
+      phone: "+353 89 954 5897",
+      email: "alsabilmarketplace@gmail.com",
       vatNo: "2682343H",
       companyNo: "739842",
       iban: "IE38REVO99036064327348",
@@ -87,6 +89,18 @@ export async function POST(request: NextRequest) {
     const totalAmount = order.total || (order.subtotal + order.deliveryFee);
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 30);
+
+    // Read and encode logo as base64
+    let logoBase64 = '';
+    try {
+      const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+      const logoBuffer = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+      console.log('Logo loaded and encoded successfully');
+    } catch (error) {
+      console.warn('Could not load logo:', error);
+      // Logo will fallback to the red container with text
+    }
 
     // Generate HTML content
     const htmlContent = `
@@ -294,7 +308,11 @@ export async function POST(request: NextRequest) {
         <body>
           <div class="header">
             <div class="logo-section">
-              <div class="logo-fallback">Al-Sabil</div>
+              ${logoBase64 ? `
+                <img src="${logoBase64}" alt="Al-Sabil Logo" style="width: 120px; height: 120px; object-fit: contain; margin-bottom: 8px; display: block;" />
+              ` : `
+                <div class="logo-fallback">Al-Sabil</div>
+              `}
               <div class="company-details">
                 <div class="company-name">${companyInfo.name}</div>
                 <div class="address-line">${companyInfo.address}</div>
