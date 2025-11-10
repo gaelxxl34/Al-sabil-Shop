@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
+import SellerHeader from "@/components/SellerHeader";
 import { productApi } from "@/lib/api-client";
 import { CreateProductRequest } from "@/types/product";
 import { compressImage, validateImageFile } from "@/lib/image-utils";
@@ -110,28 +111,13 @@ export default function CreateProduct() {
       <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
         <SellerSidebar />
       </div>
-      {/* Mobile Sidebar Toggle */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-        onClick={() => setSidebarOpen(true)}
-        aria-label="Open sidebar"
-      >
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
-      </button>
+      
+      {/* Mobile Header */}
+      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      
       {/* Mobile Sidebar Drawer */}
       <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      
       {/* Main Content - Scrollable area with sidebar offset */}
       <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
         <div className="w-full max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">

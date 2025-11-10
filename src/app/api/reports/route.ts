@@ -19,9 +19,11 @@ import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const period = searchParams.get('period') || 'weekly'; // daily, weekly, monthly
+    const period = searchParams.get('period') || 'weekly'; // daily, weekly, monthly, annually, custom
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
     const sellerId = searchParams.get('sellerId');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
 
     // Verify authentication using session cookie
     const sessionCookie = request.cookies.get('session');
@@ -59,34 +61,46 @@ export async function GET(request: NextRequest) {
 
     // Calculate date range based on period
     const selectedDate = new Date(date);
-    let startDate: Date;
-    let endDate: Date;
+    let startDateObj: Date;
+    let endDateObj: Date;
 
-    switch (period) {
-      case 'daily':
-        startDate = startOfDay(selectedDate);
-        endDate = endOfDay(selectedDate);
-        break;
-      case 'weekly':
-        // Configure to start week on Monday (weekStartsOn: 1)
-        startDate = startOfWeek(selectedDate, { weekStartsOn: 1 });
-        endDate = endOfWeek(selectedDate, { weekStartsOn: 1 });
-        break;
-      case 'monthly':
-        startDate = startOfMonth(selectedDate);
-        endDate = endOfMonth(selectedDate);
-        break;
-      default:
-        // Default to weekly with Monday start
-        startDate = startOfWeek(selectedDate, { weekStartsOn: 1 });
-        endDate = endOfWeek(selectedDate, { weekStartsOn: 1 });
+    if (period === 'custom' && startDate && endDate) {
+      // Custom date range
+      startDateObj = startOfDay(new Date(startDate));
+      endDateObj = endOfDay(new Date(endDate));
+    } else {
+      // Predefined periods
+      switch (period) {
+        case 'daily':
+          startDateObj = startOfDay(selectedDate);
+          endDateObj = endOfDay(selectedDate);
+          break;
+        case 'weekly':
+          // Configure to start week on Monday (weekStartsOn: 1)
+          startDateObj = startOfWeek(selectedDate, { weekStartsOn: 1 });
+          endDateObj = endOfWeek(selectedDate, { weekStartsOn: 1 });
+          break;
+        case 'monthly':
+          startDateObj = startOfMonth(selectedDate);
+          endDateObj = endOfMonth(selectedDate);
+          break;
+        case 'annually':
+          // Start of year to end of year
+          startDateObj = new Date(selectedDate.getFullYear(), 0, 1);
+          endDateObj = new Date(selectedDate.getFullYear(), 11, 31, 23, 59, 59, 999);
+          break;
+        default:
+          // Default to weekly with Monday start
+          startDateObj = startOfWeek(selectedDate, { weekStartsOn: 1 });
+          endDateObj = endOfWeek(selectedDate, { weekStartsOn: 1 });
+      }
     }
 
     // Fetch orders for the seller within the date range
     const ordersQuery = adminDb.collection('orders')
       .where('sellerId', '==', targetSellerId)
-      .where('createdAt', '>=', startDate.toISOString())
-      .where('createdAt', '<=', endDate.toISOString())
+      .where('createdAt', '>=', startDateObj.toISOString())
+      .where('createdAt', '<=', endDateObj.toISOString())
       .orderBy('createdAt', 'desc');
 
     const ordersSnapshot = await ordersQuery.get();
@@ -140,8 +154,8 @@ export async function GET(request: NextRequest) {
     // Fetch transactions for this seller to calculate actual payments
     const transactionsQuery = adminDb.collection('transactions')
       .where('sellerId', '==', targetSellerId)
-      .where('transactionDate', '>=', startDate.toISOString())
-      .where('transactionDate', '<=', endDate.toISOString());
+      .where('transactionDate', '>=', startDateObj.toISOString())
+      .where('transactionDate', '<=', endDateObj.toISOString());
 
     const transactionsSnapshot = await transactionsQuery.get();
     const transactions: Array<{
@@ -164,14 +178,14 @@ export async function GET(request: NextRequest) {
     // Calculate report data
     const reportData = {
       period,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+      startDate: startDateObj.toISOString(),
+      endDate: endDateObj.toISOString(),
       orders,
       customers,
       products,
       transactions,
       summary: calculateSummary(orders, customers, transactions),
-      trends: calculateTrends(orders, startDate, endDate),
+      trends: calculateTrends(orders, startDateObj, endDateObj),
       topProducts: calculateTopProducts(orders),
       topCustomers: calculateTopCustomers(orders, customers, transactions),
       paymentAnalysis: calculatePaymentAnalysis(orders, transactions),

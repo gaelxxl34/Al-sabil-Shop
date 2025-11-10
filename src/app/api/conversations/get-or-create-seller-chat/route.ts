@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch participant names
     const userData = authResult.user;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const customerName = (userData as any).displayName || userData.email || 'Customer';
     const sellerDoc = await adminDb.collection('users').doc(sellerId).get();
     const sellerData = sellerDoc.data();
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
 
     const now = Date.now();
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conversationData: Record<string, any> = {
       participants: [userId, sellerId],
       participantRoles: {

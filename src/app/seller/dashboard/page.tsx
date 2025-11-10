@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { FiUsers, FiBox, FiClock, FiCheckCircle } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
+import SellerHeader from "@/components/SellerHeader";
 import SellerGuard from "@/components/SellerGuard";
 import { useAuth } from "@/components/AuthProvider";
 import { 
@@ -205,32 +206,14 @@ export default function SellerDashboard() {
 				<SellerSidebar />
 			</div>
 
-			{/* Mobile Sidebar Toggle */}
-			<button
-				className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-2 sm:p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-				onClick={() => setSidebarOpen(true)}
-				aria-label="Open sidebar"
-			>
-				<svg
-					className="w-5 h-5 sm:w-6 sm:h-6"
-					fill="none"
-					stroke="currentColor"
-					strokeWidth="2"
-					viewBox="0 0 24 24"
-				>
-					<path
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						d="M4 6h16M4 12h16M4 18h16"
-					/>
-				</svg>
-			</button>
+			{/* Mobile Header */}
+			<SellerHeader onMenuClick={() => setSidebarOpen(true)} />
 
 			{/* Mobile Sidebar Drawer */}
 			<SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
 			{/* Main Content */}
-			<main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 md:py-8 mt-16 md:mt-0 flex flex-col gap-6 sm:gap-8">
+			<main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 md:py-8 md:mt-0 flex flex-col gap-6 sm:gap-8">
 				{/* Error State */}
 				{error && (
 					<div className="bg-red-50 border border-red-200 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">

@@ -46,12 +46,14 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = await query.get();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const notifications = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
 
     return NextResponse.json({ success: true, notifications });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('Error fetching notifications:', error);
     return NextResponse.json(
@@ -93,6 +95,7 @@ export async function PATCH(request: NextRequest) {
     await batch.commit();
 
     return NextResponse.json({ success: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('Error updating notifications:', error);
     return NextResponse.json(

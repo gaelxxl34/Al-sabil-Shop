@@ -8,6 +8,7 @@ import SellerGuard from '@/components/SellerGuard';
 import { orderApi, customerApi } from '@/lib/api-client';
 import { Order, OrderItem } from '@/types/cart';
 import { Customer } from '@/types/customer';
+import { Transaction } from '@/types/transaction';
 import Invoice from '@/components/Invoice';
 import { 
   FiArrowLeft, 
@@ -81,7 +82,7 @@ export default function OrderDetailPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   
   // Transaction history state
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   const fetchOrderData = useCallback(async () => {
@@ -114,6 +115,7 @@ export default function OrderDetailPage() {
       const data = await response.json();
       if (data.transactions) {
         // Sort by date (newest first)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sortedTransactions = data.transactions.sort((a: any, b: any) => 
           new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()
         );
@@ -714,9 +716,9 @@ export default function OrderDetailPage() {
                                   })}
                                 </p>
                                 <p className="text-xs text-gray-600 mt-1">
-                                  {transaction.paymentMethod === 'cash' ? 'Cash' :
-                                   transaction.paymentMethod === 'bank_transfer' ? 'Bank Transfer' :
-                                   transaction.paymentMethod === 'credit' ? 'Credit' : 'Other'}
+                                  {transaction.paymentMethod === 'card' ? 'Card' :
+                                   transaction.paymentMethod === 'cheque' ? 'Cheque' :
+                                   transaction.paymentMethod === 'credit_note' ? 'Credit Note' : 'Other'}
                                 </p>
                                 {transaction.reference && (
                                   <p className="text-xs text-gray-500 mt-0.5">

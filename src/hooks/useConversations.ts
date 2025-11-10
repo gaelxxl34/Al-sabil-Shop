@@ -63,6 +63,7 @@ export function useConversations(userId: string | null, options?: {
         clearInterval(pollingIntervalRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, options?.status, options?.type, options?.limitCount]);
 
   return { conversations, loading, error };

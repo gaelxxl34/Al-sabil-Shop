@@ -14,6 +14,7 @@ import {
 } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
+import SellerHeader from "@/components/SellerHeader";
 import SellerGuard from "@/components/SellerGuard";
 import { useAuth } from "@/components/AuthProvider";
 import SkeletonComponents from "@/components/SkeletonLoader";
@@ -89,12 +90,14 @@ const getPaymentStatusColor = (name: string) => {
 function ReportsPageContent() {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'annually' | 'custom'>('weekly');
   const [isLoading, setIsLoading] = useState(true);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [customerPayments, setCustomerPayments] = useState<CustomerPaymentStatus[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   
   // Individual Customer Report States
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerPaymentStatus | null>(null);
@@ -110,8 +113,24 @@ function ReportsPageContent() {
 
     setIsLoading(true);
     try {
+      // Build query parameters
+      let queryParams = `period=${reportPeriod}&sellerId=${user.uid}`;
+      
+      if (reportPeriod === 'custom') {
+        // Use custom date range
+        if (!customStartDate || !customEndDate) {
+          console.error('Custom date range requires both start and end dates');
+          setIsLoading(false);
+          return;
+        }
+        queryParams += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+      } else {
+        // Use selected date for predefined periods
+        queryParams += `&date=${selectedDate}`;
+      }
+      
       // Use the reports API with authenticated user ID
-      const reportsResponse = await fetch(`/api/reports?period=${reportPeriod}&date=${selectedDate}&sellerId=${user.uid}`);
+      const reportsResponse = await fetch(`/api/reports?${queryParams}`);
       const reportsData = await reportsResponse.json();
 
       if (reportsData.success) {
@@ -176,7 +195,7 @@ function ReportsPageContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [reportPeriod, selectedDate, user?.uid]);
+  }, [reportPeriod, selectedDate, customStartDate, customEndDate, user?.uid]);
 
   useEffect(() => {
     loadReportData();
@@ -193,17 +212,15 @@ function ReportsPageContent() {
       
       // Fetch all transactions for this customer to get accurate payment data
       // This ensures the report shows the same payment data as the transactions page
-      const transactionsResponse = await fetch(`/api/transactions?customerId=${customer.id}`);
-      const transactionsData = await transactionsResponse.json();
+      await fetch(`/api/transactions?customerId=${customer.id}`);
       
-      // Create a map of total payments per customer from transactions
-      const customerPayments = transactionsData.transactions?.reduce((sum: number, transaction: any) => {
-        return sum + (transaction.amount || 0);
-      }, 0) || 0;
+      // Transactions are available but not used in this calculation
+      // Payment tracking is handled separately in the transactions page
       
-      if (ordersData.success && ordersData.orders) {
+      if (ordersData.success && ordersData.data) {
         // Transform orders into invoice details
-        const invoices: CustomerInvoiceDetail[] = ordersData.orders.map((order: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const invoices: CustomerInvoiceDetail[] = ordersData.data.map((order: any) => {
           const invoiceDate = new Date(order.createdAt);
           const dueDate = new Date(invoiceDate);
           dueDate.setDate(dueDate.getDate() + 30);
@@ -299,6 +316,12 @@ function ReportsPageContent() {
   };
 
   const getDateRangeText = () => {
+    if (reportPeriod === 'custom' && customStartDate && customEndDate) {
+      const startDateObj = new Date(customStartDate);
+      const endDateObj = new Date(customEndDate);
+      return `${format(startDateObj, 'MMM dd, yyyy')} - ${format(endDateObj, 'MMM dd, yyyy')}`;
+    }
+    
     const selectedDateObj = new Date(selectedDate);
     
     switch (reportPeriod) {
@@ -310,6 +333,8 @@ function ReportsPageContent() {
         return `${format(weekStart, 'MMM dd')} - ${format(weekEnd, 'MMM dd, yyyy')}`;
       case 'monthly':
         return format(selectedDateObj, 'MMMM yyyy');
+      case 'annually':
+        return format(selectedDateObj, 'yyyy');
       default:
         return format(selectedDateObj, 'MMMM dd, yyyy');
     }
@@ -414,16 +439,8 @@ function ReportsPageContent() {
         <SellerSidebar />
       </div>
 
-      {/* Mobile Sidebar Toggle */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-        onClick={() => setSidebarOpen(true)}
-        aria-label="Open sidebar"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+      {/* Mobile Header */}
+      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
 
       {/* Mobile Sidebar Drawer */}
       <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -448,12 +465,12 @@ function ReportsPageContent() {
             
             <div className="flex flex-col sm:flex-row gap-4">
               {/* Period Selector */}
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                {(['daily', 'weekly', 'monthly'] as const).map((period) => (
+              <div className="flex flex-wrap bg-gray-100 rounded-lg p-1 gap-1">
+                {(['daily', 'weekly', 'monthly', 'annually', 'custom'] as const).map((period) => (
                   <button
                     key={period}
                     onClick={() => setReportPeriod(period)}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                       reportPeriod === period
                         ? 'bg-white text-gray-900 shadow-sm'
                         : 'text-gray-600 hover:text-gray-900'
@@ -464,17 +481,46 @@ function ReportsPageContent() {
                 ))}
               </div>
 
-              {/* Date Picker */}
-              <div className="flex items-center gap-2">
-                <FiCalendar className="w-5 h-5 text-gray-500" />
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  title={reportPeriod === 'weekly' ? 'Select any date within the week you want to view' : `Select ${reportPeriod === 'daily' ? 'the day' : 'any date in the month'} to view`}
-                />
-              </div>
+              {/* Date Picker - Conditional rendering based on period */}
+              {reportPeriod === 'custom' ? (
+                <div className="flex items-center gap-2">
+                  <FiCalendar className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="From"
+                    />
+                    <span className="text-gray-500 self-center">to</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="To"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <FiCalendar className="w-5 h-5 text-gray-500" />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    title={
+                      reportPeriod === 'weekly' 
+                        ? 'Select any date within the week you want to view' 
+                        : reportPeriod === 'annually'
+                        ? 'Select any date in the year to view'
+                        : `Select ${reportPeriod === 'daily' ? 'the day' : 'any date in the month'} to view`
+                    }
+                  />
+                </div>
+              )}
 
               {/* View PDF Button */}
               <button
@@ -661,7 +707,7 @@ function ReportsPageContent() {
             <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-900">Customer Payment Status</h3>
-                <p className="text-sm text-gray-600 mt-1">Detailed payment tracking for all customers - Click "View Report" to see invoice-level details</p>
+                <p className="text-sm text-gray-600 mt-1">Detailed payment tracking for all customers - Click &quot;View Report&quot; to see invoice-level details</p>
               </div>
               
               <div className="overflow-x-auto">
@@ -824,7 +870,7 @@ function ReportsPageContent() {
                       <div className="p-12 text-center text-gray-500">
                         <FiFileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                         <p className="text-lg font-medium">No invoices found</p>
-                        <p className="text-sm mt-1">This customer hasn't placed any orders yet.</p>
+                        <p className="text-sm mt-1">This customer hasn&apos;t placed any orders yet.</p>
                       </div>
                     ) : (
                       <table className="w-full text-sm">

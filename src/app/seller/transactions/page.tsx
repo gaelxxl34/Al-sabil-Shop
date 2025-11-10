@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
-import { FiMenu, FiPlus, FiDollarSign, FiFilter, FiX, FiEye, FiUser, FiCheckCircle, FiPackage, FiTrash2 } from 'react-icons/fi';
+import SellerHeader from '@/components/SellerHeader';
+import { FiPlus, FiDollarSign, FiFilter, FiX, FiEye, FiUser, FiCheckCircle, FiPackage, FiTrash2 } from 'react-icons/fi';
 import { Transaction, CreateTransactionInput } from '@/types/transaction';
 import { Customer } from '@/types/customer';
 import { Order } from '@/types/cart';
@@ -54,8 +55,10 @@ function TransactionsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAddingTransaction, setIsAddingTransaction] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showCreditNoteForm, setShowCreditNoteForm] = useState(false);
   const [showBulkPaymentModal, setShowBulkPaymentModal] = useState(false);
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<CustomerPaymentInfo | null>(null);
+  const [selectedCustomerForCreditNote, setSelectedCustomerForCreditNote] = useState<CustomerPaymentInfo | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -89,6 +92,16 @@ function TransactionsContent() {
     transactionDate: new Date().toISOString().split('T')[0]
   });
 
+  // Credit note form state
+  const [creditNoteData, setCreditNoteData] = useState({
+    customerId: '',
+    amount: 0,
+    reason: 'returned_goods',
+    relatedOrderId: '',
+    notes: '',
+    transactionDate: new Date().toISOString().split('T')[0]
+  });
+
   useEffect(() => {
     fetchInitialData();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -103,13 +116,14 @@ function TransactionsContent() {
     if (customers.length > 0 && orders.length > 0) {
       calculateCustomerPaymentInfo();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, orders, transactions]);
 
   const fetchInitialData = useCallback(async () => {
     try {
       setIsLoading(true);
       
-      const [customersResult, ordersResult, transactionsResult] = await Promise.allSettled([
+      await Promise.allSettled([
         fetchCustomers(),
         fetchOrders(),
         fetchTransactions()
@@ -459,6 +473,70 @@ function TransactionsContent() {
     setTransactionToDelete(null);
   };
 
+  const handleIssueCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!creditNoteData.customerId || creditNoteData.amount <= 0) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setIsAddingTransaction(true);
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: creditNoteData.customerId,
+          amount: creditNoteData.amount,
+          type: 'credit_note',
+          paymentMethod: 'credit_note',
+          reference: creditNoteData.reason,
+          notes: creditNoteData.notes,
+          transactionDate: creditNoteData.transactionDate,
+          relatedOrderId: creditNoteData.relatedOrderId || undefined
+        }),
+      });
+
+      if (response.ok) {
+        alert('Credit note issued successfully!');
+        setShowCreditNoteForm(false);
+        setSelectedCustomerForCreditNote(null);
+        // Reset form
+        setCreditNoteData({
+          customerId: '',
+          amount: 0,
+          reason: 'returned_goods',
+          relatedOrderId: '',
+          notes: '',
+          transactionDate: new Date().toISOString().split('T')[0]
+        });
+        await fetchInitialData();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to issue credit note');
+      }
+    } catch (error) {
+      console.error('Error issuing credit note:', error);
+      alert('Failed to issue credit note');
+    } finally {
+      setIsAddingTransaction(false);
+    }
+  };
+
+  const openCreditNoteForm = (customerInfo: CustomerPaymentInfo) => {
+    setSelectedCustomerForCreditNote(customerInfo);
+    setCreditNoteData({
+      customerId: customerInfo.customerId,
+      amount: 0,
+      reason: 'returned_goods',
+      relatedOrderId: '',
+      notes: '',
+      transactionDate: new Date().toISOString().split('T')[0]
+    });
+    setShowCreditNoteForm(true);
+  };
+
   const clearFilters = () => {
     setSelectedCustomer('');
     setSelectedPaymentMethod('');
@@ -490,31 +568,26 @@ function TransactionsContent() {
   const totalCustomersWithOutstanding = customerPaymentInfo.filter(info => info.totalOutstanding > 0).length;
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex flex-col md:flex-row h-screen bg-gray-50">
       {/* Desktop Sidebar */}
-      <div className="hidden lg:block">
+      <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
         <SellerSidebar />
       </div>
+
+      {/* Mobile Header */}
+      <SellerHeader onMenuClick={() => setIsSidebarOpen(true)} />
 
       {/* Mobile Sidebar Drawer */}
       <SellerSidebarDrawer open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-4 py-4 lg:px-8">
+      <div className="flex-1 flex flex-col overflow-hidden md:ml-64">
+        {/* Header - Desktop only, mobile uses SellerHeader */}
+        <header className="hidden md:block bg-white border-b border-gray-200 px-4 py-4 lg:px-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setIsSidebarOpen(true)}
-                className="lg:hidden text-gray-600 hover:text-gray-900"
-              >
-                <FiMenu className="w-6 h-6" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Payment Management</h1>
-                <p className="text-sm text-gray-600">Manage customer payments and outstanding balances</p>
-              </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Payment Management</h1>
+              <p className="text-sm text-gray-600">Manage customer payments and outstanding balances</p>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -534,6 +607,40 @@ function TransactionsContent() {
             </div>
           </div>
         </header>
+
+        {/* Mobile Header Section - Shows title and actions on mobile */}
+        <div className="md:hidden bg-white border-b border-gray-200 px-4 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Payment Management</h1>
+              <p className="text-xs text-gray-600">Customer payments & balances</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (customers.length === 0) {
+                  alert('Please wait for customers to load before recording a transaction.');
+                  return;
+                }
+                setShowAddForm(true);
+              }}
+              disabled={isLoading}
+              className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              <FiPlus className="w-4 h-4" />
+              <span>{isLoading ? 'Loading...' : 'Record Payment'}</span>
+            </button>
+            <button
+              onClick={() => setShowCreditNoteForm(true)}
+              disabled={isLoading}
+              className="flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              <FiX className="w-4 h-4" />
+              <span>Credit Note</span>
+            </button>
+          </div>
+        </div>
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
@@ -692,6 +799,13 @@ function TransactionsContent() {
                                   Record Payment
                                 </button>
                               )}
+                              <button
+                                onClick={() => openCreditNoteForm(customerInfo)}
+                                className="bg-orange-600 text-white px-3 py-1 rounded text-xs hover:bg-orange-700 transition-colors"
+                                title="Issue credit note for returned goods or quality issues"
+                              >
+                                Issue Credit Note
+                              </button>
                               <button
                                 onClick={() => {
                                   // Navigate to customer details or orders
@@ -1335,6 +1449,217 @@ function TransactionsContent() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Note Modal */}
+      {showCreditNoteForm && selectedCustomerForCreditNote && (
+        <div 
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowCreditNoteForm(false);
+            setSelectedCustomerForCreditNote(null);
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Issue Credit Note</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Create a credit note for {selectedCustomerForCreditNote.customerName}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCreditNoteForm(false);
+                  setSelectedCustomerForCreditNote(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <FiX className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleIssueCreditNote} className="p-6 space-y-6">
+              {/* Customer Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <FiUser className="w-5 h-5 text-blue-600" />
+                  <h3 className="font-semibold text-gray-900">Customer Information</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Business:</span>
+                    <span className="ml-2 font-medium text-gray-900">{selectedCustomerForCreditNote.businessName}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Total Orders:</span>
+                    <span className="ml-2 font-medium text-gray-900">{selectedCustomerForCreditNote.totalOrders}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Order Value:</span>
+                    <span className="ml-2 font-medium text-gray-900">{formatCurrency(selectedCustomerForCreditNote.totalOrderValue)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Outstanding:</span>
+                    <span className="ml-2 font-medium text-red-600">{formatCurrency(selectedCustomerForCreditNote.totalOutstanding)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Credit Note Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Credit Amount (€) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={creditNoteData.amount || ''}
+                    onChange={(e) => setCreditNoteData({ 
+                      ...creditNoteData, 
+                      amount: parseFloat(e.target.value) || 0 
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="0.00"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Amount to credit back to customer
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Credit Note Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={creditNoteData.transactionDate}
+                    onChange={(e) => setCreditNoteData({ 
+                      ...creditNoteData, 
+                      transactionDate: e.target.value 
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={creditNoteData.reason}
+                    onChange={(e) => setCreditNoteData({ 
+                      ...creditNoteData, 
+                      reason: e.target.value 
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  >
+                    <option value="returned_goods">Returned Goods</option>
+                    <option value="quality_issue">Quality Issue</option>
+                    <option value="wrong_items">Wrong Items Delivered</option>
+                    <option value="damaged_goods">Damaged Goods</option>
+                    <option value="pricing_error">Pricing Error</option>
+                    <option value="customer_complaint">Customer Complaint</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Related Order (Optional)
+                  </label>
+                  <select
+                    value={creditNoteData.relatedOrderId}
+                    onChange={(e) => setCreditNoteData({ 
+                      ...creditNoteData, 
+                      relatedOrderId: e.target.value 
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  >
+                    <option value="">Select an order (optional)</option>
+                    {selectedCustomerForCreditNote.orders
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .slice(0, 10)
+                      .map((order) => (
+                      <option key={order.id} value={order.id}>
+                        Order #{order.id.slice(-8).toUpperCase()} - {formatCurrency(order.total)} ({formatDate(order.createdAt)})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Link to the order this credit note relates to
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={creditNoteData.notes}
+                  onChange={(e) => setCreditNoteData({ 
+                    ...creditNoteData, 
+                    notes: e.target.value 
+                  })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  placeholder="Describe the reason for this credit note (e.g., 'Chicken breast returned - did not meet quality specifications')"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Provide detailed information about why this credit note is being issued
+                </p>
+              </div>
+
+              {/* Warning */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0">
+                    <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-medium text-yellow-800 mb-1">Important</p>
+                    <p className="text-yellow-700">
+                      This will create a negative transaction of €{creditNoteData.amount.toFixed(2)}, reducing the customer&apos;s outstanding balance. 
+                      The credit can be applied to future orders.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreditNoteForm(false);
+                    setSelectedCustomerForCreditNote(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingTransaction}
+                  className="flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isAddingTransaction ? 'Issuing...' : `Issue Credit Note (€${creditNoteData.amount.toFixed(2)})`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -51,12 +51,14 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = await query.get();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conversations = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
 
     return NextResponse.json({ success: true, conversations });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('Error fetching conversations:', error);
     return NextResponse.json(
@@ -190,6 +192,7 @@ export async function POST(request: NextRequest) {
       conversationId,
       conversation: { id: conversationId, ...conversationData }
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('Error creating conversation:', error);
     return NextResponse.json(

@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
     console.log('Filters:', { customerId, paymentMethod, startDate, endDate });
 
     // Build query - start with base collection
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let query: any = adminDb.collection('transactions');
 
     // Filter by seller first (most important filter for sellers)
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
     const snapshot = await query.get();
     console.log('Query returned', snapshot.docs.length, 'documents');
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let transactions: Transaction[] = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
@@ -172,6 +174,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Set transaction type (defaults to 'payment')
+    const transactionType = body.type || 'payment';
+    
+    // For credit notes, amount should be stored as negative
+    const transactionAmount = transactionType === 'credit_note' ? -Math.abs(body.amount) : Math.abs(body.amount);
+
     // Get customer information
     const customerDoc = await adminDb.collection('customers').doc(body.customerId).get();
     if (!customerDoc.exists) {
@@ -189,21 +197,113 @@ export async function POST(request: NextRequest) {
     const transaction: Omit<Transaction, 'id'> = {
       customerId: body.customerId,
       customerName: customerData?.businessName || customerData?.contactPerson || 'Unknown',
-      amount: body.amount,
+      amount: transactionAmount,
+      type: transactionType,
       paymentMethod: body.paymentMethod,
       reference: body.reference || '',
       notes: body.notes || '',
       transactionDate: body.transactionDate,
       createdAt: new Date().toISOString(),
       sellerId: userRole === 'seller' ? userId : customerData?.sellerId || userId,
-      createdBy: userId
+      createdBy: userId,
+      relatedOrderId: body.relatedOrderId
     };
 
     const docRef = await adminDb.collection('transactions').add(transaction);
 
+    // Update all unpaid/partial orders for this customer
+    const ordersQuery = adminDb.collection('orders')
+      .where('customerId', '==', body.customerId)
+      .where('sellerId', '==', transaction.sellerId)
+      .where('paymentStatus', 'in', ['pending', 'partial', 'overdue']);
+    
+    const ordersSnapshot = await ordersQuery.get();
+    
+    // Calculate total paid for this customer from all transactions
+    const allTransactionsQuery = adminDb.collection('transactions')
+      .where('customerId', '==', body.customerId)
+      .where('sellerId', '==', transaction.sellerId);
+    
+    const allTransactionsSnapshot = await allTransactionsQuery.get();
+    let totalCustomerPayments = 0;
+    allTransactionsSnapshot.forEach((doc) => {
+      totalCustomerPayments += doc.data().amount || 0;
+    });
+
+    // Get all orders for this customer to allocate payments
+    const ordersList: Array<{ id: string; total: number; totalPaid: number }> = [];
+    ordersSnapshot.forEach((doc) => {
+      const orderData = doc.data();
+      const orderTotal = orderData.total || 0;
+      ordersList.push({
+        id: doc.id,
+        total: orderTotal,
+        totalPaid: orderData.totalPaid || 0
+      });
+    });
+
+    // Also include paid orders to get accurate total
+    const paidOrdersQuery = adminDb.collection('orders')
+      .where('customerId', '==', body.customerId)
+      .where('sellerId', '==', transaction.sellerId)
+      .where('paymentStatus', '==', 'paid');
+    
+    const paidOrdersSnapshot = await paidOrdersQuery.get();
+    paidOrdersSnapshot.forEach((doc) => {
+      const orderData = doc.data();
+      const orderTotal = orderData.total || 0;
+      ordersList.push({
+        id: doc.id,
+        total: orderTotal,
+        totalPaid: orderData.totalPaid || 0
+      });
+    });
+
+    // Sort orders by creation date (oldest first) to allocate payments
+    const allOrdersQuery = adminDb.collection('orders')
+      .where('customerId', '==', body.customerId)
+      .where('sellerId', '==', transaction.sellerId)
+      .orderBy('createdAt', 'asc');
+    
+    const allOrdersSnapshot = await allOrdersQuery.get();
+    let remainingPayment = totalCustomerPayments;
+
+    // Allocate payments to orders
+    const batch = adminDb.batch();
+    allOrdersSnapshot.forEach((doc) => {
+      const orderData = doc.data();
+      const orderTotal = orderData.total || 0;
+      
+      // Calculate how much to allocate to this order
+      const amountToAllocate = Math.min(remainingPayment, orderTotal);
+      remainingPayment -= amountToAllocate;
+      
+      const newTotalPaid = amountToAllocate;
+      const newRemainingAmount = orderTotal - newTotalPaid;
+      
+      // Determine payment status
+      let paymentStatus: 'pending' | 'partial' | 'paid' | 'overdue' = 'pending';
+      if (newTotalPaid >= orderTotal) {
+        paymentStatus = 'paid';
+      } else if (newTotalPaid > 0) {
+        paymentStatus = 'partial';
+      }
+      
+      batch.update(doc.ref, {
+        totalPaid: newTotalPaid,
+        remainingAmount: newRemainingAmount,
+        paymentStatus: paymentStatus,
+        updatedAt: new Date().toISOString()
+      });
+    });
+
+    // Commit the batch update
+    await batch.commit();
+
     return NextResponse.json({
       success: true,
-      transaction: { id: docRef.id, ...transaction }
+      transaction: { id: docRef.id, ...transaction },
+      ordersUpdated: allOrdersSnapshot.size
     });
   } catch (error) {
     console.error('Error creating transaction:', error);

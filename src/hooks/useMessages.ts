@@ -84,6 +84,7 @@ export function useMessages(conversationId: string | null, currentUserId: string
       isFirstLoad.current = true;
       previousMessageIds.current.clear();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, currentUserId, limitCount]);
 
   return { messages, loading, error, connected: true }; // Always connected with polling

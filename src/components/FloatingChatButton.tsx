@@ -5,7 +5,7 @@ import { useMessages } from '@/hooks/useMessages';
 import { useTypingIndicator, useOthersTyping } from '@/hooks/useTypingIndicator';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import ChatMessage, { MessageStatus } from '@/components/ChatMessage';
-import { Message } from '@/types/conversation';
+import { Message, Conversation } from '@/types/conversation';
 
 interface OptimisticMessage extends Message {
   optimistic: boolean;
@@ -30,8 +30,8 @@ export default function FloatingChatButton({
   const [messageText, setMessageText] = useState('');
   const [sending, setSending] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [selectedConversation, setSelectedConversation] = useState<any>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [showConversationList, setShowConversationList] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -127,6 +127,7 @@ export default function FloatingChatButton({
               
               // Calculate unread count (always, even when closed)
               let total = 0;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               data.conversations.forEach((conv: any) => {
                 total += conv.unreadCount?.[userId] || 0;
               });
@@ -158,6 +159,7 @@ export default function FloatingChatButton({
       conversationId: conversationId || '',
       senderId: userId,
       senderName: 'You',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       senderRole: (userRole as any) || 'customer',
       text: messageText.trim(),
       type: 'text',
@@ -245,7 +247,7 @@ export default function FloatingChatButton({
     }
   };
 
-  const handleSelectConversation = async (conv: any) => {
+  const handleSelectConversation = async (conv: Conversation) => {
     setConversationId(conv.id);
     setSelectedConversation(conv);
     setShowConversationList(false);
@@ -364,7 +366,7 @@ export default function FloatingChatButton({
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-900 truncate">
-                                  {conversation.participantNames?.[conversation.participants.find((p: string) => p !== userId)] || 'Customer'}
+                                  {conversation.participantNames?.[conversation.participants.find((p: string) => p !== userId) || ''] || 'Customer'}
                                 </p>
                                 <p className="text-xs sm:text-sm text-gray-500 truncate mt-1">
                                   {conversation.lastMessage?.text || 'No messages yet'}
@@ -410,7 +412,7 @@ export default function FloatingChatButton({
                   )}
                   <div className="flex-1">
                     <h3 className="text-base sm:text-lg font-semibold">
-                      {userRole === 'customer' ? 'Chat with Seller' : selectedConversation?.participantNames?.[selectedConversation.participants.find((p: string) => p !== userId)] || 'Customer'}
+                      {userRole === 'customer' ? 'Chat with Seller' : selectedConversation?.participantNames?.[selectedConversation.participants.find((p: string) => p !== userId) || ''] || 'Customer'}
                     </h3>
                   </div>
                   <button

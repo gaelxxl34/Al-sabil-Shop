@@ -43,6 +43,12 @@ export async function POST(request: NextRequest) {
           return `${format(weekStart, 'MMM dd')} - ${format(weekEnd, 'MMM dd, yyyy')}`;
         case 'monthly':
           return format(selectedDateObj, 'MMMM yyyy');
+        case 'annually':
+          return format(selectedDateObj, 'yyyy');
+        case 'custom':
+          return reportData.startDate && reportData.endDate 
+            ? `${format(new Date(reportData.startDate), 'MMM dd, yyyy')} - ${format(new Date(reportData.endDate), 'MMM dd, yyyy')}`
+            : format(selectedDateObj, 'MMMM dd, yyyy');
         default:
           return format(selectedDateObj, 'MMMM dd, yyyy');
       }
@@ -314,12 +320,12 @@ export async function POST(request: NextRequest) {
             <!-- Payment Analysis -->
             <div class="section">
               <h2 class="section-title">Payment Status Breakdown</h2>
+              <p class="subtext" style="margin-bottom: 10px;">Period: ${dateRangeText}</p>
               <table class="table">
                 <thead>
                   <tr>
                     <th>Payment Status</th>
                     <th>Amount</th>
-                    <th>Percentage</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -327,9 +333,12 @@ export async function POST(request: NextRequest) {
                     <tr>
                       <td>${status.name}</td>
                       <td>€${status.value.toFixed(2)}</td>
-                      <td>${status.percentage.toFixed(1)}%</td>
                     </tr>
                   `).join('')}
+                  <tr style="font-weight: bold; background: #f3f4f6;">
+                    <td>Total Revenue</td>
+                    <td>€${reportData.totalRevenue.toFixed(2)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
+import SellerHeader from "@/components/SellerHeader";
 import SellerGuard from "@/components/SellerGuard";
 import SkeletonComponents from "@/components/SkeletonLoader";
 import { apiFetch } from "@/lib/api-client";
@@ -75,12 +76,17 @@ export default function SellerUsers() {
     fetchCustomers();
   }, []);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return 'Invalid date';
+    }
   };
   return (
     <SellerGuard>
@@ -89,28 +95,13 @@ export default function SellerUsers() {
       <div className="hidden md:flex">
         <SellerSidebar />
       </div>
-      {/* Mobile Sidebar Toggle */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-        onClick={() => setSidebarOpen(true)}
-        aria-label="Open sidebar"
-      >
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
-      </button>
+      
+      {/* Mobile Header */}
+      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      
       {/* Mobile Sidebar Drawer */}
       <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      
       {/* Main Content */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 overflow-y-auto h-screen md:h-screen">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
@@ -219,7 +210,7 @@ export default function SellerUsers() {
                         <td className="py-3 px-4">
                           <div>
                             <div className="font-medium text-gray-900">{customer.businessName}</div>
-                            {customer.branches.length > 0 && (
+                            {customer.branches && customer.branches.length > 0 && (
                               <div className="text-xs text-gray-500">+{customer.branches.length} branches</div>
                             )}
                           </div>
