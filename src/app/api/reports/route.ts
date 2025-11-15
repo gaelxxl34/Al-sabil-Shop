@@ -16,6 +16,46 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const toNumber = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const getOrderFinancials = (order: { [key: string]: unknown }) => {
+  const subtotal = toNumber(order.subtotal);
+  const deliveryFee = toNumber(order.deliveryFee);
+  const fallbackTotal = subtotal + deliveryFee;
+  const total = toNumber(order.total) || fallbackTotal;
+
+  const storedRemaining = order.remainingAmount !== undefined
+    ? toNumber(order.remainingAmount)
+    : null;
+
+  const storedPaid = toNumber(order.totalPaid);
+
+  const remaining = clamp(
+    storedRemaining !== null ? storedRemaining : Math.max(total - storedPaid, 0),
+    0,
+    total
+  );
+
+  const paid = clamp(total - remaining, 0, total);
+
+  return {
+    total,
+    paid,
+    remaining,
+  };
+};
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -210,19 +250,27 @@ function calculateSummary(
   customers: Array<{ id: string; [key: string]: unknown }>,
   transactions: Array<{ id: string; customerId: string; amount: number; [key: string]: unknown }>
 ) {
-  const totalRevenue = orders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-  
-  // Calculate total paid from transactions (this is the source of truth)
-  const totalPaidFromTransactions = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
-  
-  // Also include payments recorded directly on orders (for backward compatibility)
-  const totalPaidFromOrders = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
-  
-  // Use the maximum of the two to ensure we don't miss any payments
-  const totalPaidAmount = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
-  
-  const totalOutstanding = totalRevenue - totalPaidAmount;
-  
+  const orderFinancials = orders.map(getOrderFinancials);
+
+  const totalRevenue = orderFinancials.reduce((sum, order) => sum + order.total, 0);
+
+  const totalPaidFromTransactions = transactions.reduce(
+    (sum, transaction) => sum + toNumber(transaction.amount),
+    0
+  );
+
+  const totalPaidFromOrders = orderFinancials.reduce((sum, order) => sum + order.paid, 0);
+  const totalOutstandingFromOrders = orderFinancials.reduce((sum, order) => sum + order.remaining, 0);
+
+  const rawPaid = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
+  const outstandingDerived = Math.max(totalRevenue - rawPaid, 0);
+  const totalOutstanding = clamp(
+    Math.max(totalOutstandingFromOrders, outstandingDerived),
+    0,
+    totalRevenue
+  );
+  const totalPaidAmount = clamp(totalRevenue - totalOutstanding, 0, totalRevenue);
+
   const totalOrders = orders.length;
   const paidOrders = orders.filter(order => order.paymentStatus === 'paid').length;
   const partialOrders = orders.filter(order => order.paymentStatus === 'partial').length;
@@ -312,31 +360,53 @@ function calculateTopCustomers(
 ) {
   const customerStats = customers.map(customer => {
     const customerOrders = orders.filter(order => order.customerId === customer.id);
-    const totalSpent = customerOrders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-    
-    // Calculate total paid from transactions for this customer
+    const orderFinancials = customerOrders.map(getOrderFinancials);
+    const totalSpent = orderFinancials.reduce((sum, order) => sum + order.total, 0);
+
+    const outstandingFromOrders = orderFinancials.reduce((sum, order) => sum + order.remaining, 0);
+    const paidFromOrders = orderFinancials.reduce((sum, order) => sum + order.paid, 0);
+
     const customerTransactions = transactions.filter(t => t.customerId === customer.id);
-    const totalPaidFromTransactions = customerTransactions.reduce((sum, t) => sum + t.amount, 0);
-    
-    // Also check order.totalPaid for backward compatibility
-    const totalPaidFromOrders = customerOrders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
-    
-    // Use the maximum to ensure we capture all payments
-    const totalPaid = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
-    const totalOutstanding = totalSpent - totalPaid;
-    
+    const totalPaidFromTransactions = customerTransactions.reduce((sum, t) => sum + toNumber(t.amount), 0);
+
+    const rawPaid = Math.max(totalPaidFromTransactions, paidFromOrders);
+    const outstandingDerived = Math.max(totalSpent - rawPaid, 0);
+    const totalOutstanding = clamp(
+      Math.max(outstandingFromOrders, outstandingDerived),
+      0,
+      totalSpent
+    );
+    const totalPaid = clamp(totalSpent - totalOutstanding, 0, totalSpent);
+
     const paidOrdersCount = customerOrders.filter(order => order.paymentStatus === 'paid').length;
     const partialOrdersCount = customerOrders.filter(order => order.paymentStatus === 'partial').length;
     const unpaidOrdersCount = customerOrders.filter(order => ['pending', 'overdue'].includes(order.paymentStatus as string)).length;
     
     let paymentStatus = 'Good Standing';
     if (totalOutstanding > 0) {
-      if (unpaidOrdersCount > 0 || partialOrdersCount > 2) {
+      const outstandingRatio = totalSpent > 0 ? totalOutstanding / totalSpent : 0;
+      if (unpaidOrdersCount > 0 || outstandingRatio >= 0.5) {
         paymentStatus = 'Has Outstanding';
-      } else if (partialOrdersCount > 0) {
+      } else {
         paymentStatus = 'Partial Payments';
       }
     }
+
+    const lastOrderDateValue = customerOrders.reduce<Date | null>((latest, order) => {
+      if (typeof order.createdAt !== 'string') {
+        return latest;
+      }
+      const currentDate = new Date(order.createdAt);
+      if (Number.isNaN(currentDate.getTime())) {
+        return latest;
+      }
+      if (!latest || currentDate > latest) {
+        return currentDate;
+      }
+      return latest;
+    }, null);
+
+    const lastOrderDate = lastOrderDateValue ? lastOrderDateValue.toISOString() : null;
     
     return {
       id: customer.id,
@@ -351,7 +421,8 @@ function calculateTopCustomers(
       paidOrders: paidOrdersCount,
       partialOrders: partialOrdersCount,
       unpaidOrders: unpaidOrdersCount,
-      status: paymentStatus
+      status: paymentStatus,
+      lastOrderDate,
     };
   }).sort((a, b) => b.totalSpent - a.totalSpent);
 
@@ -362,46 +433,55 @@ function calculatePaymentAnalysis(
   orders: Array<{ id: string; [key: string]: unknown }>,
   transactions: Array<{ id: string; customerId: string; amount: number; [key: string]: unknown }>
 ) {
-  const totalRevenue = orders.reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-  
-  // Calculate total paid from transactions (source of truth)
-  const totalPaidFromTransactions = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
-  
-  // Also check orders for backward compatibility
-  const totalPaidFromOrders = orders.reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
-  
-  // Use maximum to capture all payments
-  const totalPaidAmount = Math.max(totalPaidFromTransactions, totalPaidFromOrders);
-  const totalOutstanding = totalRevenue - totalPaidAmount;
+  const orderFinancials = orders.map(getOrderFinancials);
 
-  // Break down by payment status
-  const partialOrdersTotal = orders
-    .filter(order => order.paymentStatus === 'partial')
-    .reduce((sum, order) => sum + ((order.total as number) || 0), 0);
-    
-  const partialOrdersPaid = orders
-    .filter(order => order.paymentStatus === 'partial')
-    .reduce((sum, order) => sum + ((order.totalPaid as number) || 0), 0);
+  const totalRevenue = orderFinancials.reduce((sum, order) => sum + order.total, 0);
+  const paidFromOrders = orderFinancials.reduce((sum, order) => sum + order.paid, 0);
+  const outstandingFromOrders = orderFinancials.reduce((sum, order) => sum + order.remaining, 0);
 
-  const result = [
-    { 
-      name: 'Paid', 
-      value: totalPaidAmount, 
-      percentage: totalRevenue > 0 ? (totalPaidAmount / totalRevenue) * 100 : 0 
-    },
-    { 
-      name: 'Outstanding', 
-      value: totalOutstanding, 
-      percentage: totalRevenue > 0 ? (totalOutstanding / totalRevenue) * 100 : 0 
-    }
-  ];
+  const totalPaidFromTransactions = transactions.reduce(
+    (sum, transaction) => sum + toNumber(transaction.amount),
+    0
+  );
 
-  // Only include partial and pending if they exist
-  if (partialOrdersTotal > 0) {
+  const rawPaid = Math.max(totalPaidFromTransactions, paidFromOrders);
+  const outstandingDerived = Math.max(totalRevenue - rawPaid, 0);
+  const totalOutstanding = clamp(
+    Math.max(outstandingFromOrders, outstandingDerived),
+    0,
+    totalRevenue
+  );
+  const totalPaidAmount = clamp(totalRevenue - totalOutstanding, 0, totalRevenue);
+
+  const partialOrdersPaid = orders.reduce((sum, order, index) => {
+    return order.paymentStatus === 'partial' ? sum + orderFinancials[index].paid : sum;
+  }, 0);
+
+  const fullyPaidValue = clamp(totalPaidAmount - partialOrdersPaid, 0, totalRevenue);
+
+  const result: Array<{ name: string; value: number; percentage: number }> = [];
+
+  if (fullyPaidValue > 0) {
     result.push({
-      name: 'Partial',
+      name: 'Fully Paid',
+      value: fullyPaidValue,
+      percentage: totalRevenue > 0 ? (fullyPaidValue / totalRevenue) * 100 : 0,
+    });
+  }
+
+  if (partialOrdersPaid > 0) {
+    result.push({
+      name: 'Partial (Paid Portion)',
       value: partialOrdersPaid,
-      percentage: totalRevenue > 0 ? (partialOrdersPaid / totalRevenue) * 100 : 0
+      percentage: totalRevenue > 0 ? (partialOrdersPaid / totalRevenue) * 100 : 0,
+    });
+  }
+
+  if (totalOutstanding > 0) {
+    result.push({
+      name: 'Outstanding',
+      value: totalOutstanding,
+      percentage: totalRevenue > 0 ? (totalOutstanding / totalRevenue) * 100 : 0,
     });
   }
 

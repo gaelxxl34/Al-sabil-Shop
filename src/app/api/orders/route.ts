@@ -32,27 +32,30 @@ export async function GET(request: NextRequest) {
     const userRole = userData?.role || 'customer';
 
     let ordersQuery: Query<DocumentData> = adminDb.collection('orders');
+    let postFilterCustomerId: string | null = null;
 
-    // Filter based on user role and parameters
-    if (customerId) {
-      // Customer requesting their orders
-      if (decodedToken.uid !== customerId && userRole !== 'admin') {
+    if (userRole === 'seller') {
+      const resolvedSellerId = sellerId ?? decodedToken.uid;
+      if (resolvedSellerId !== decodedToken.uid) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
-      ordersQuery = ordersQuery.where('customerId', '==', customerId);
-    } else if (sellerId) {
-      // Seller requesting orders for their customers
-      if (decodedToken.uid !== sellerId && userRole !== 'admin') {
-        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      ordersQuery = ordersQuery.where('sellerId', '==', resolvedSellerId);
+      if (customerId) {
+        postFilterCustomerId = customerId;
       }
-      ordersQuery = ordersQuery.where('sellerId', '==', sellerId);
     } else if (userRole === 'customer') {
-      // Customer without specifying customerId - use their own ID
-      ordersQuery = ordersQuery.where('customerId', '==', decodedToken.uid);
-    } else if (userRole === 'seller') {
-      // Seller without specifying sellerId - use their own ID
-      ordersQuery = ordersQuery.where('sellerId', '==', decodedToken.uid);
-    } else if (userRole !== 'admin') {
+      const resolvedCustomerId = customerId ?? decodedToken.uid;
+      if (resolvedCustomerId !== decodedToken.uid) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+      ordersQuery = ordersQuery.where('customerId', '==', resolvedCustomerId);
+    } else if (userRole === 'admin') {
+      if (sellerId) {
+        ordersQuery = ordersQuery.where('sellerId', '==', sellerId);
+      } else if (customerId) {
+        ordersQuery = ordersQuery.where('customerId', '==', customerId);
+      }
+    } else {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
@@ -69,9 +72,13 @@ export async function GET(request: NextRequest) {
       } as Order);
     });
 
+    const filteredOrders = postFilterCustomerId
+      ? orders.filter((order) => order.customerId === postFilterCustomerId)
+      : orders;
+
     return NextResponse.json({
       success: true,
-      data: orders,
+      data: filteredOrders,
     });
 
   } catch (error) {

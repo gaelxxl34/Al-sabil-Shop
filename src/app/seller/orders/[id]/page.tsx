@@ -10,6 +10,7 @@ import { Order, OrderItem } from '@/types/cart';
 import { Customer } from '@/types/customer';
 import { Transaction } from '@/types/transaction';
 import Invoice from '@/components/Invoice';
+import DeliveryNote from '@/components/DeliveryNote';
 import { 
   FiArrowLeft, 
   FiEdit2, 
@@ -81,9 +82,20 @@ export default function OrderDetailPage() {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   
+  // Credit note state
+  const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
+  const [creditNoteAmount, setCreditNoteAmount] = useState('');
+  const [creditNoteReason, setCreditNoteReason] = useState<'returned_goods' | 'quality_issue' | 'wrong_items' | 'damaged_goods' | 'pricing_error' | 'customer_complaint' | 'other'>('returned_goods');
+  const [creditNoteNotes, setCreditNoteNotes] = useState('');
+  const [isProcessingCreditNote, setIsProcessingCreditNote] = useState(false);
+  
   // Transaction history state
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  
+  // Document visibility state
+  const [showDeliveryNoteModal, setShowDeliveryNoteModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   const fetchOrderData = useCallback(async () => {
     try {
@@ -263,6 +275,51 @@ export default function OrderDetailPage() {
     setShowPaymentModal(true);
   };
 
+  const openCreditNoteModal = () => {
+    setCreditNoteAmount('');
+    setCreditNoteNotes('');
+    setCreditNoteReason('returned_goods');
+    setShowCreditNoteModal(true);
+  };
+
+  const handleIssueCreditNote = async () => {
+    if (!order || !creditNoteAmount || parseFloat(creditNoteAmount) <= 0) {
+      showToastMessage('Please enter a valid credit note amount');
+      return;
+    }
+
+    const amount = parseFloat(creditNoteAmount);
+
+    if (amount > order.total) {
+      showToastMessage(`Credit note amount cannot exceed order total of €${order.total.toFixed(2)}`);
+      return;
+    }
+
+    setIsProcessingCreditNote(true);
+    try {
+      const response = await orderApi.updateOrder(order.id, {
+        creditNoteAmount: amount,
+        creditNoteReason,
+        creditNoteNotes
+      });
+
+      showToastMessage(response.message || `Credit note of €${amount.toFixed(2)} issued successfully`);
+      
+      // Reset form and close modal
+      setShowCreditNoteModal(false);
+      setCreditNoteAmount('');
+      setCreditNoteNotes('');
+      setCreditNoteReason('returned_goods');
+      
+      await fetchOrderData();
+    } catch (error) {
+      console.error('Error issuing credit note:', error);
+      showToastMessage('Error issuing credit note');
+    } finally {
+      setIsProcessingCreditNote(false);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -283,6 +340,14 @@ export default function OrderDetailPage() {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const orderSuffix = order.id.slice(-6).toUpperCase();
     return `INV-${year}${month}-${orderSuffix}`;
+  };
+
+  const generateDeliveryNoteNumber = (order: Order) => {
+    const date = new Date(order.createdAt);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const orderSuffix = order.id.slice(-6).toUpperCase();
+    return `DN-${year}${month}-${orderSuffix}`;
   };
 
   const Toast = () => {
@@ -575,14 +640,7 @@ export default function OrderDetailPage() {
                   </div>
                 )}
 
-                {/* Invoice Section - Only show when order is confirmed or later */}
-                {(order.status === 'confirmed' || order.status === 'prepared' || order.status === 'delivered') && customer && (
-                  <Invoice 
-                    order={order}
-                    customer={customer}
-                    invoiceNumber={generateInvoiceNumber(order)}
-                  />
-                )}
+                {/* Documents are now shown in modals via action buttons */}
               </div>
 
               {/* Order Summary & Actions */}
@@ -653,6 +711,24 @@ export default function OrderDetailPage() {
                             <span className="font-medium text-red-600">
                               €{order.remainingAmount.toFixed(2)}
                             </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Credit Notes Summary */}
+                    {!isEditing && order.creditNotes && order.creditNotes.length > 0 && (
+                      <div className="border-t border-gray-200 pt-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Credit Notes Applied</span>
+                          <span className="font-medium text-orange-600">
+                            -€{(order.totalCreditNotes || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        {order.originalTotal && (
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>Original Total:</span>
+                            <span>€{order.originalTotal.toFixed(2)}</span>
                           </div>
                         )}
                       </div>
@@ -747,6 +823,59 @@ export default function OrderDetailPage() {
                     </div>
                   )}
 
+                  {/* Credit Notes History */}
+                  {order.creditNotes && order.creditNotes.length > 0 && (
+                    <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-100">
+                      <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                        <FiFileText className="w-4 h-4" />
+                        Credit Notes Issued
+                      </h3>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {order.creditNotes.map((creditNote) => (
+                          <div 
+                            key={creditNote.id}
+                            className="flex items-start justify-between p-3 bg-white rounded border border-orange-200"
+                          >
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-900">
+                                -€{creditNote.amount.toFixed(2)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {new Date(creditNote.date).toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              <p className="text-xs text-gray-600 mt-1 capitalize">
+                                {creditNote.reason.replace(/_/g, ' ')}
+                              </p>
+                              {creditNote.notes && (
+                                <p className="text-xs text-gray-700 mt-1 bg-gray-50 p-2 rounded">
+                                  {creditNote.notes}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right ml-2">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+                                <FiX className="w-3 h-3 mr-1" />
+                                Credit
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-orange-200">
+                        <div className="flex justify-between text-sm font-semibold">
+                          <span className="text-gray-700">Total Credit Notes:</span>
+                          <span className="text-orange-600">
+                            -€{order.creditNotes.reduce((sum, cn) => sum + cn.amount, 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Status Actions */}
                   {!isEditing && (
                     <div className="space-y-3">
@@ -813,6 +942,39 @@ export default function OrderDetailPage() {
                           Record Payment
                         </button>
                       )}
+
+                      {/* Issue Credit Note button - Available for all statuses except cancelled */}
+                      {order.status !== 'cancelled' && order.total > 0 && (
+                        <button
+                          onClick={openCreditNoteModal}
+                          className="w-full bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                        >
+                          Issue Credit Note
+                        </button>
+                      )}
+                      
+                      {/* Document Actions - Show based on order status */}
+                      <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
+                        {(order.status === 'prepared' || order.status === 'delivered') && (
+                          <button
+                            onClick={() => setShowDeliveryNoteModal(true)}
+                            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center justify-center gap-2"
+                          >
+                            <FiTruck className="w-4 h-4" />
+                            Delivery Note
+                          </button>
+                        )}
+                        
+                        {(order.status === 'confirmed' || order.status === 'prepared' || order.status === 'delivered') && (
+                          <button
+                            onClick={() => setShowInvoiceModal(true)}
+                            className="w-full bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition-colors text-sm flex items-center justify-center gap-2"
+                          >
+                            <FiFileText className="w-4 h-4" />
+                            Invoice
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -929,6 +1091,172 @@ export default function OrderDetailPage() {
                 >
                   {isProcessingPayment ? 'Recording...' : 'Record Payment'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Credit Note Modal */}
+        {showCreditNoteModal && order && (
+          <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Issue Credit Note
+                </h3>
+                <button
+                  onClick={() => setShowCreditNoteModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <FiX className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Current Order Total:</span>
+                    <span className="font-medium">€{order.total.toFixed(2)}</span>
+                  </div>
+                  {order.originalTotal && order.originalTotal !== order.total && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Original Total:</span>
+                      <span className="font-medium">€{order.originalTotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {order.totalCreditNotes && order.totalCreditNotes > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Total Credit Notes:</span>
+                      <span className="font-medium text-orange-600">-€{order.totalCreditNotes.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <p className="text-xs text-yellow-700">
+                    <strong>Note:</strong> Issuing a credit note will reduce the order total and remaining amount due. This is typically done for returned goods, quality issues, or customer complaints.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Credit Amount (€) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={order.total}
+                    value={creditNoteAmount}
+                    onChange={(e) => setCreditNoteAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={creditNoteReason}
+                    onChange={(e) => setCreditNoteReason(e.target.value as typeof creditNoteReason)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  >
+                    <option value="returned_goods">Returned Goods</option>
+                    <option value="quality_issue">Quality Issue</option>
+                    <option value="wrong_items">Wrong Items Delivered</option>
+                    <option value="damaged_goods">Damaged Goods</option>
+                    <option value="pricing_error">Pricing Error</option>
+                    <option value="customer_complaint">Customer Complaint</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notes <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={creditNoteNotes}
+                    onChange={(e) => setCreditNoteNotes(e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Describe the reason for this credit note (e.g., '5kg chicken breast returned - did not meet quality specifications')"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Provide detailed information about why this credit note is being issued
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCreditNoteModal(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleIssueCreditNote}
+                  disabled={isProcessingCreditNote || !creditNoteAmount || parseFloat(creditNoteAmount) <= 0 || !creditNoteNotes}
+                  className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessingCreditNote ? 'Issuing...' : 'Issue Credit Note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delivery Note Modal */}
+        {showDeliveryNoteModal && order && customer && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
+              <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Delivery Note
+                </h3>
+                <button
+                  onClick={() => setShowDeliveryNoteModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <FiX className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="max-h-[80vh] overflow-y-auto">
+                <DeliveryNote 
+                  order={order}
+                  customer={customer}
+                  deliveryNoteNumber={generateDeliveryNoteNumber(order)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Invoice Modal */}
+        {showInvoiceModal && order && customer && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
+              <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Invoice
+                </h3>
+                <button
+                  onClick={() => setShowInvoiceModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <FiX className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="max-h-[80vh] overflow-y-auto">
+                <Invoice 
+                  order={order}
+                  customer={customer}
+                  invoiceNumber={generateInvoiceNumber(order)}
+                />
               </div>
             </div>
           </div>

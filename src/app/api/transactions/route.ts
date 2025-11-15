@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
       sellerId: userRole === 'seller' ? userId : customerData?.sellerId || userId,
       createdBy: userId,
-      relatedOrderId: body.relatedOrderId
+      ...(body.relatedOrderId ? { relatedOrderId: body.relatedOrderId } : {})
     };
 
     const docRef = await adminDb.collection('transactions').add(transaction);

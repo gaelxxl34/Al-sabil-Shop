@@ -39,6 +39,16 @@ export interface PaymentRecord {
   createdAt: string;
 }
 
+export interface CreditNote {
+  id: string;
+  amount: number;
+  reason: 'returned_goods' | 'quality_issue' | 'wrong_items' | 'damaged_goods' | 'pricing_error' | 'customer_complaint' | 'other';
+  notes?: string;
+  date: string;
+  createdBy: string; // seller ID who issued the credit note
+  createdAt: string;
+}
+
 export interface Order {
   id: string;
   customerId: string;
@@ -50,9 +60,12 @@ export interface Order {
   subtotal: number;
   deliveryFee: number;
   total: number;
+  originalTotal?: number; // Original total before credit notes
+  totalCreditNotes?: number; // Total amount of credit notes issued
   totalPaid: number; // Total amount paid so far
   remainingAmount: number; // Remaining amount to be paid
   payments: PaymentRecord[]; // Array of payment records
+  creditNotes?: CreditNote[]; // Array of credit notes issued
   deliveryAddress: string;
   deliveryDate?: string;
   notes?: string;

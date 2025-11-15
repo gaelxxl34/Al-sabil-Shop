@@ -102,7 +102,11 @@ export async function PUT(
       // New payment-related fields
       paymentAmount,
       paymentMethod,
-      paymentNotes
+      paymentNotes,
+      // Credit note fields
+      creditNoteAmount,
+      creditNoteReason,
+      creditNoteNotes
     } = body;
 
     // Get the existing order
@@ -175,6 +179,53 @@ export async function PUT(
       }
     }
 
+    // Handle credit note issuance
+    if (creditNoteAmount && creditNoteAmount > 0) {
+      const currentTotal = existingOrder.total;
+      const originalTotal = existingOrder.originalTotal || currentTotal;
+      const currentTotalCreditNotes = existingOrder.totalCreditNotes || 0;
+      const currentTotalPaid = existingOrder.totalPaid || 0;
+
+      // Validate credit note amount
+      if (creditNoteAmount > currentTotal) {
+        return NextResponse.json({ 
+          error: `Credit note amount (€${creditNoteAmount}) cannot exceed current order total of €${currentTotal.toFixed(2)}` 
+        }, { status: 400 });
+      }
+
+      // Create new credit note record
+      const newCreditNote = {
+        id: `credit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        amount: creditNoteAmount,
+        reason: creditNoteReason || 'other',
+        notes: creditNoteNotes || '',
+        date: new Date().toISOString(),
+        createdBy: decodedToken.uid,
+        createdAt: new Date().toISOString(),
+      };
+
+      // Update credit note tracking
+      const currentCreditNotes = existingOrder.creditNotes || [];
+      updateData.creditNotes = [...currentCreditNotes, newCreditNote];
+      updateData.totalCreditNotes = currentTotalCreditNotes + creditNoteAmount;
+      updateData.originalTotal = originalTotal;
+
+      // Reduce the total by credit note amount
+      const newTotal = currentTotal - creditNoteAmount;
+      updateData.total = newTotal;
+
+      // Recalculate remaining amount
+      const newRemainingAmount = Math.max(0, newTotal - currentTotalPaid);
+      updateData.remainingAmount = newRemainingAmount;
+
+      // Update payment status if fully paid after credit
+      if (newRemainingAmount === 0 && currentTotalPaid > 0) {
+        updateData.paymentStatus = 'paid';
+      } else if (currentTotalPaid > 0 && newRemainingAmount > 0) {
+        updateData.paymentStatus = 'partial';
+      }
+    }
+
     // Update the order
     await adminDb.collection('orders').doc(orderId).update(updateData);
 
@@ -194,7 +245,11 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       data: updatedOrder,
-      message: paymentAmount ? `Payment of €${paymentAmount.toFixed(2)} recorded successfully` : 'Order updated successfully',
+      message: creditNoteAmount 
+        ? `Credit note of €${creditNoteAmount.toFixed(2)} issued successfully. Order total reduced from €${existingOrder.total.toFixed(2)} to €${updatedOrder.total.toFixed(2)}` 
+        : paymentAmount 
+          ? `Payment of €${paymentAmount.toFixed(2)} recorded successfully` 
+          : 'Order updated successfully',
     });
 
   } catch (error) {

@@ -36,12 +36,14 @@ interface ReportData {
   productRevenue: number;
   dailyRevenue: Array<{ date: string; revenue: number; orders: number }>;
   topCustomers: Array<{ 
+    id: string;
     name: string; 
     totalSpent: number; 
     totalPaid: number;
     totalOutstanding: number;
     orderCount: number; 
-    status: string 
+    status: string;
+    lastOrderDate: string | null;
   }>;
   topProducts: Array<{ name: string; quantity: number; revenue: number }>;
   paymentStatus: Array<{ name: string; value: number; percentage: number }>;
@@ -58,8 +60,10 @@ interface CustomerPaymentStatus {
   totalAmount: number;
   paidAmount: number;
   unpaidAmount: number;
-  lastOrderDate: string;
+  lastOrderDate: string | null;
   status: 'good' | 'warning' | 'overdue';
+  address?: string;
+  phone?: string;
 }
 
 interface CustomerInvoiceDetail {
@@ -75,16 +79,30 @@ interface CustomerInvoiceDetail {
   orderStatus: string;
 }
 
-// Color mapping for payment status: green for paid, red for unpaid
+interface CreditNoteDetail {
+  id: string;
+  creditNoteNumber: string;
+  creditNoteDate: string;
+  amount: number;
+  reason: string;
+  notes: string;
+  relatedOrderId?: string;
+  relatedInvoiceNumber?: string;
+}
+
+// Color mapping for payment status segments
 const getPaymentStatusColor = (name: string) => {
-  switch (name.toLowerCase()) {
-    case 'paid':
-      return '#10b981'; // Green
-    case 'unpaid':
-      return '#ef4444'; // Red
-    default:
-      return '#6b7280'; // Gray fallback
+  const key = name.toLowerCase();
+  if (key.includes('fully') || key === 'paid') {
+    return '#10b981';
   }
+  if (key.includes('partial')) {
+    return '#f59e0b';
+  }
+  if (key.includes('outstanding') || key.includes('unpaid')) {
+    return '#ef4444';
+  }
+  return '#6b7280';
 };
 
 function ReportsPageContent() {
@@ -93,6 +111,8 @@ function ReportsPageContent() {
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'annually' | 'custom'>('weekly');
   const [isLoading, setIsLoading] = useState(true);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [isReportCsvGenerating, setIsReportCsvGenerating] = useState(false);
+  const [isCustomerCsvGenerating, setIsCustomerCsvGenerating] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [customerPayments, setCustomerPayments] = useState<CustomerPaymentStatus[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -102,7 +122,50 @@ function ReportsPageContent() {
   // Individual Customer Report States
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerPaymentStatus | null>(null);
   const [customerInvoices, setCustomerInvoices] = useState<CustomerInvoiceDetail[]>([]);
+  const [customerCreditNotes, setCustomerCreditNotes] = useState<CreditNoteDetail[]>([]);
   const [loadingCustomerDetails, setLoadingCustomerDetails] = useState(false);
+  const [isGeneratingCustomerPdf, setIsGeneratingCustomerPdf] = useState(false);
+
+  const formatCurrency = (value: number) => `€${value.toFixed(2)}`;
+
+  const sanitizeFileName = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^_+|_+$/g, '')
+      || 'report';
+
+  const downloadCsv = (rows: Array<Array<string | number | null>>, fileName: string) => {
+    if (!rows.length) {
+      return;
+    }
+
+    const escapeValue = (value: string | number | null) => {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      const stringValue = typeof value === 'number' ? String(value) : value;
+      const needsEscaping = /[",\n\r]/.test(stringValue);
+      const safeValue = stringValue.replace(/"/g, '""');
+      return needsEscaping ? `"${safeValue}"` : safeValue;
+    };
+
+    const csv = rows
+      .map((row) => row.map(escapeValue).join(','))
+      .join('\r\n');
+
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
 
   const loadReportData = useCallback(async () => {
     if (!user?.uid) {
@@ -170,21 +233,38 @@ function ReportsPageContent() {
           totalSpent: number;
           totalPaid: number;
           totalOutstanding: number;
-        }) => ({
-          id: customer.id,
-          name: customer.name,
-          email: customer.email,
-          totalOrders: customer.orderCount,
-          paidOrders: customer.paidOrders,
-          partialOrders: customer.partialOrders,
-          unpaidOrders: customer.unpaidOrders,
-          totalAmount: customer.totalSpent,
-          paidAmount: customer.totalPaid,
-          unpaidAmount: customer.totalOutstanding,
-          lastOrderDate: new Date().toISOString(), // You might want to add this to the API
-          status: customer.totalOutstanding === 0 ? 'good' as const : 
-                  customer.totalOutstanding <= customer.totalSpent * 0.3 ? 'warning' as const : 'overdue' as const,
-        }));
+          lastOrderDate?: string | null;
+        }) => {
+          const totalAmount = customer.totalSpent ?? 0;
+          const unpaidAmount = Math.max(customer.totalOutstanding ?? 0, 0);
+          const paidAmount = Math.max(customer.totalPaid ?? 0, 0);
+
+          const outstandingRatio = totalAmount > 0 ? unpaidAmount / totalAmount : 0;
+          let status: 'good' | 'warning' | 'overdue';
+
+          if (unpaidAmount <= 0.01) {
+            status = 'good';
+          } else if (outstandingRatio <= 0.3) {
+            status = 'warning';
+          } else {
+            status = 'overdue';
+          }
+
+          return {
+            id: customer.id,
+            name: customer.name,
+            email: customer.email,
+            totalOrders: customer.orderCount,
+            paidOrders: customer.paidOrders,
+            partialOrders: customer.partialOrders,
+            unpaidOrders: customer.unpaidOrders,
+            totalAmount,
+            paidAmount,
+            unpaidAmount,
+            lastOrderDate: customer.lastOrderDate ?? null,
+            status,
+          };
+        });
         
         setCustomerPayments(paymentStatus);
       } else {
@@ -203,19 +283,33 @@ function ReportsPageContent() {
 
   const loadCustomerInvoiceDetails = async (customer: CustomerPaymentStatus) => {
     setLoadingCustomerDetails(true);
-    setSelectedCustomer(customer);
     
     try {
+      // Fetch full customer details to get address and phone
+      const customerResponse = await fetch(`/api/customers/${customer.id}`);
+      const customerData = await customerResponse.json();
+      
+      console.log('Customer API Response:', customerData);
+      console.log('Customer Response Status:', customerResponse.status);
+      
+      // Create enhanced customer object with address and phone
+      const enhancedCustomer = {
+        ...customer,
+        address: (customerData.success && customerData.data) ? (customerData.data.address || '') : '',
+        phone: (customerData.success && customerData.data) ? (customerData.data.phone || '') : ''
+      };
+      
+      console.log('Enhanced Customer:', enhancedCustomer);
+      
+      setSelectedCustomer(enhancedCustomer);
+      
       // Fetch all orders for this customer
       const ordersResponse = await fetch(`/api/orders?customerId=${customer.id}&sellerId=${user?.uid}`);
       const ordersData = await ordersResponse.json();
       
-      // Fetch all transactions for this customer to get accurate payment data
-      // This ensures the report shows the same payment data as the transactions page
-      await fetch(`/api/transactions?customerId=${customer.id}`);
-      
-      // Transactions are available but not used in this calculation
-      // Payment tracking is handled separately in the transactions page
+      // Fetch all transactions (including credit notes) for this customer
+      const transactionsResponse = await fetch(`/api/transactions?customerId=${customer.id}`);
+      const transactionsData = await transactionsResponse.json();
       
       if (ordersData.success && ordersData.data) {
         // Transform orders into invoice details
@@ -259,6 +353,76 @@ function ReportsPageContent() {
         
         setCustomerInvoices(invoices);
       }
+      
+      // Process credit notes from transactions
+      if (transactionsData.transactions) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const creditNotes: CreditNoteDetail[] = transactionsData.transactions
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((txn: any) => txn.type === 'credit_note')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((txn: any) => {
+            const generateCreditNoteNumber = (txnId: string, createdAt: string) => {
+              const date = new Date(createdAt);
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const txnSuffix = txnId.slice(-6).toUpperCase();
+              return `CN-${year}${month}-${txnSuffix}`;
+            };
+            
+            // Find related invoice if available
+            let relatedInvoiceNumber = '';
+            if (txn.relatedOrderId) {
+              const relatedInvoice = ordersData.data?.find((order: { id: string }) => order.id === txn.relatedOrderId);
+              if (relatedInvoice) {
+                const date = new Date(relatedInvoice.createdAt);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const orderSuffix = relatedInvoice.id.slice(-6).toUpperCase();
+                relatedInvoiceNumber = `INV-${year}${month}-${orderSuffix}`;
+              }
+            }
+            
+            // Extract reason from notes if available
+            const reasonMapping: Record<string, string> = {
+              'returned_goods': 'Returned Goods',
+              'quality_issue': 'Quality Issue',
+              'wrong_items': 'Wrong Items',
+              'damaged_goods': 'Damaged Goods',
+              'pricing_error': 'Pricing Error',
+              'customer_complaint': 'Customer Complaint',
+              'other': 'Other'
+            };
+            
+            // Try to extract reason from notes
+            let reason = 'Credit Note';
+            if (txn.notes) {
+              const notesLower = txn.notes.toLowerCase();
+              for (const [key, value] of Object.entries(reasonMapping)) {
+                if (notesLower.includes(key.replace('_', ' '))) {
+                  reason = value;
+                  break;
+                }
+              }
+            }
+            
+            return {
+              id: txn.id,
+              creditNoteNumber: generateCreditNoteNumber(txn.id, txn.createdAt),
+              creditNoteDate: txn.transactionDate || txn.createdAt,
+              amount: Math.abs(txn.amount), // Show as positive for display
+              reason,
+              notes: txn.notes || '',
+              relatedOrderId: txn.relatedOrderId,
+              relatedInvoiceNumber
+            };
+          });
+        
+        // Sort by date (newest first)
+        creditNotes.sort((a, b) => new Date(b.creditNoteDate).getTime() - new Date(a.creditNoteDate).getTime());
+        
+        setCustomerCreditNotes(creditNotes);
+      }
     } catch (error) {
       console.error('Error loading customer invoice details:', error);
       alert('Failed to load customer details. Please try again.');
@@ -270,6 +434,7 @@ function ReportsPageContent() {
   const handleBackToOverview = () => {
     setSelectedCustomer(null);
     setCustomerInvoices([]);
+    setCustomerCreditNotes([]);
   };
 
   const generatePDF = async () => {
@@ -289,6 +454,8 @@ function ReportsPageContent() {
           reportData,
           reportPeriod,
           selectedDate,
+          customStartDate: reportPeriod === 'custom' ? customStartDate : undefined,
+          customEndDate: reportPeriod === 'custom' ? customEndDate : undefined,
         }),
       });
 
@@ -312,6 +479,102 @@ function ReportsPageContent() {
       alert('Error generating PDF. Please try again.');
     } finally {
       setIsPdfGenerating(false);
+    }
+  };
+
+  const exportReportCsv = () => {
+    if (!reportData) {
+      alert('No report data available to export.');
+      return;
+    }
+
+    try {
+      setIsReportCsvGenerating(true);
+      const now = new Date();
+      const rows: Array<Array<string | number | null>> = [];
+      const periodLabel = reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1);
+
+      rows.push([`${periodLabel} Report`]);
+      rows.push(['Date Range', getDateRangeText()]);
+      rows.push(['Generated At', format(now, 'yyyy-MM-dd HH:mm')]);
+      rows.push(['']);
+
+      rows.push(['Summary']);
+      rows.push(['Metric', 'Value']);
+      rows.push(['Total Revenue', formatCurrency(reportData.totalRevenue)]);
+      rows.push(['Collected (Paid Portions)', formatCurrency(reportData.totalPaidAmount)]);
+      rows.push(['Outstanding', formatCurrency(reportData.totalOutstanding)]);
+      rows.push(['Total Orders', reportData.totalOrders]);
+      rows.push(['Paid Orders', reportData.paidOrders]);
+      rows.push(['Partial Orders', reportData.partialOrders]);
+      rows.push(['Pending/Overdue Orders', reportData.unpaidOrders]);
+      rows.push(['Average Order Value', formatCurrency(reportData.averageOrderValue)]);
+      rows.push(['Delivery Revenue', formatCurrency(reportData.deliveryRevenue)]);
+      rows.push(['Product Revenue', formatCurrency(reportData.productRevenue)]);
+      rows.push(['Active Customers', `${reportData.activeCustomers} of ${reportData.totalCustomers}`]);
+      rows.push(['']);
+
+      if (reportData.paymentStatus.length) {
+        rows.push(['Payment Status Breakdown']);
+        rows.push(['Status', 'Amount', 'Percentage']);
+        reportData.paymentStatus.forEach((segment) => {
+          rows.push([
+            segment.name,
+            formatCurrency(segment.value),
+            `${segment.percentage.toFixed(1)}%`,
+          ]);
+        });
+        rows.push(['']);
+      }
+
+      if (reportData.dailyRevenue.length) {
+        rows.push(['Revenue Trend']);
+        rows.push(['Date', 'Revenue', 'Orders']);
+        reportData.dailyRevenue.forEach((entry) => {
+          rows.push([
+            entry.date,
+            formatCurrency(entry.revenue),
+            entry.orders,
+          ]);
+        });
+        rows.push(['']);
+      }
+
+      if (reportData.topCustomers.length) {
+        rows.push(['Top Customers']);
+        rows.push(['Customer', 'Total Spent', 'Paid', 'Outstanding', 'Orders', 'Last Order']);
+        reportData.topCustomers.forEach((customer) => {
+          rows.push([
+            customer.name,
+            formatCurrency(customer.totalSpent),
+            formatCurrency(customer.totalPaid),
+            formatCurrency(customer.totalOutstanding),
+            customer.orderCount,
+            customer.lastOrderDate ? format(new Date(customer.lastOrderDate), 'yyyy-MM-dd') : '—',
+          ]);
+        });
+        rows.push(['']);
+      }
+
+      if (reportData.topProducts.length) {
+        rows.push(['Top Products']);
+        rows.push(['Product', 'Quantity Sold', 'Revenue']);
+        reportData.topProducts.forEach((product) => {
+          rows.push([
+            product.name,
+            product.quantity,
+            formatCurrency(product.revenue),
+          ]);
+        });
+        rows.push(['']);
+      }
+
+      const safeFileName = sanitizeFileName(
+        `financial-report-${reportPeriod}-${format(now, 'yyyy-MM-dd')}`
+      );
+      downloadCsv(rows, `${safeFileName}.csv`);
+    } finally {
+      setIsReportCsvGenerating(false);
     }
   };
 
@@ -363,6 +626,171 @@ function ReportsPageContent() {
         return <FiAlertCircle className="w-4 h-4" />;
       default: 
         return <FiFileText className="w-4 h-4" />;
+    }
+  };
+
+  const exportCustomerInvoicesCsv = () => {
+    if (!selectedCustomer) {
+      return;
+    }
+
+    if (!customerInvoices.length && !customerCreditNotes.length) {
+      alert('No invoice or credit note data available to export for this customer.');
+      return;
+    }
+
+    try {
+      setIsCustomerCsvGenerating(true);
+      const rows: Array<Array<string | number | null>> = [];
+      const now = new Date();
+
+      rows.push([
+        `${selectedCustomer.name} (${selectedCustomer.email}) Invoice History`,
+      ]);
+      rows.push(['Generated At', format(now, 'yyyy-MM-dd HH:mm')]);
+      rows.push(['']);
+
+      // Invoices section
+      if (customerInvoices.length > 0) {
+        rows.push(['INVOICES']);
+        rows.push([
+          'Invoice #',
+          'Invoice Date',
+          'Due Date',
+          'Total Amount',
+          'Paid Amount',
+          'Outstanding',
+          'Payment Status',
+          'Payment Method',
+          'Order Status',
+        ]);
+
+        customerInvoices.forEach((invoice) => {
+          rows.push([
+            invoice.invoiceNumber,
+            format(new Date(invoice.invoiceDate), 'yyyy-MM-dd'),
+            format(new Date(invoice.dueDate), 'yyyy-MM-dd'),
+            formatCurrency(invoice.totalAmount),
+            formatCurrency(invoice.paidAmount),
+            formatCurrency(invoice.outstandingAmount),
+            invoice.paymentStatus,
+            invoice.paymentMethod,
+            invoice.orderStatus,
+          ]);
+        });
+
+        rows.push(['']);
+        rows.push([
+          'INVOICE TOTALS',
+          '',
+          '',
+          formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)),
+          formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0)),
+          formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.outstandingAmount, 0)),
+          '',
+          '',
+          '',
+        ]);
+        rows.push(['']);
+      }
+
+      // Credit Notes section
+      if (customerCreditNotes.length > 0) {
+        rows.push(['CREDIT NOTES']);
+        rows.push([
+          'Credit Note #',
+          'Date',
+          'Amount',
+          'Reason',
+          'Related Invoice',
+          'Notes',
+        ]);
+
+        customerCreditNotes.forEach((cn) => {
+          rows.push([
+            cn.creditNoteNumber,
+            format(new Date(cn.creditNoteDate), 'yyyy-MM-dd'),
+            formatCurrency(cn.amount),
+            cn.reason,
+            cn.relatedInvoiceNumber || '—',
+            cn.notes || '—',
+          ]);
+        });
+
+        rows.push(['']);
+        rows.push([
+          'CREDIT NOTE TOTAL',
+          '',
+          formatCurrency(customerCreditNotes.reduce((sum, cn) => sum + cn.amount, 0)),
+          '',
+          '',
+          '',
+        ]);
+        rows.push(['']);
+      }
+
+      // Grand totals
+      const totalInvoiced = customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+      const totalCreditNotes = customerCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+      const netAmount = totalInvoiced - totalCreditNotes;
+      
+      rows.push(['SUMMARY']);
+      rows.push(['Total Invoiced', formatCurrency(totalInvoiced)]);
+      rows.push(['Total Credit Notes', formatCurrency(totalCreditNotes)]);
+      rows.push(['Net Amount', formatCurrency(netAmount)]);
+      rows.push(['Total Paid', formatCurrency(selectedCustomer.paidAmount)]);
+      rows.push(['Balance Outstanding', formatCurrency(selectedCustomer.unpaidAmount)]);
+
+      const safeFileName = sanitizeFileName(
+        `${selectedCustomer.name}-statement-${format(now, 'yyyy-MM-dd')}`
+      );
+      downloadCsv(rows, `${safeFileName}.csv`);
+    } finally {
+      setIsCustomerCsvGenerating(false);
+    }
+  };
+
+  const generateCustomerReportPDF = async () => {
+    if (!selectedCustomer) {
+      alert('No customer selected for report generation.');
+      return;
+    }
+
+    setIsGeneratingCustomerPdf(true);
+    try {
+      const response = await fetch('/api/generate-customer-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customer: selectedCustomer,
+          invoices: customerInvoices,
+          creditNotes: customerCreditNotes,
+          reportDate: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate customer report PDF');
+      }
+
+      // Get the PDF blob
+      const blob = await response.blob();
+      
+      // Create object URL and open in new tab
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      
+      // Cleanup after a delay to ensure the PDF loads
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 1000);
+    } catch (error) {
+      console.error('Error generating customer report PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    } finally {
+      setIsGeneratingCustomerPdf(false);
     }
   };
 
@@ -449,7 +877,7 @@ function ReportsPageContent() {
       <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
         <div className="w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Financial Reports</h1>
               <p className="text-gray-600 mt-1">Comprehensive business analytics and financial insights</p>
@@ -463,16 +891,16 @@ function ReportsPageContent() {
               </p>
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-4 w-full lg:w-auto">
               {/* Period Selector */}
-              <div className="flex flex-wrap bg-gray-100 rounded-lg p-1 gap-1">
+              <div className="flex flex-wrap bg-white border border-gray-200 rounded-lg p-1 gap-1 shadow-sm">
                 {(['daily', 'weekly', 'monthly', 'annually', 'custom'] as const).map((period) => (
                   <button
                     key={period}
                     onClick={() => setReportPeriod(period)}
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                       reportPeriod === period
-                        ? 'bg-white text-gray-900 shadow-sm'
+                        ? 'bg-blue-600 text-white shadow-sm'
                         : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -483,7 +911,7 @@ function ReportsPageContent() {
 
               {/* Date Picker - Conditional rendering based on period */}
               {reportPeriod === 'custom' ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
                   <FiCalendar className="w-5 h-5 text-gray-500 flex-shrink-0" />
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
@@ -504,7 +932,7 @@ function ReportsPageContent() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
                   <FiCalendar className="w-5 h-5 text-gray-500" />
                   <input
                     type="date"
@@ -522,24 +950,43 @@ function ReportsPageContent() {
                 </div>
               )}
 
-              {/* View PDF Button */}
-              <button
-                onClick={generatePDF}
-                disabled={isPdfGenerating}
-                className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
-              >
-                {isPdfGenerating ? (
-                  <>
-                    <FiLoader className="w-5 h-5 animate-spin" />
-                    Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <FiFileText className="w-5 h-5" />
-                    View PDF Report
-                  </>
-                )}
-              </button>
+              {/* Export Actions */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={exportReportCsv}
+                  disabled={isReportCsvGenerating}
+                  className="flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:border-gray-400 hover:text-gray-900 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isReportCsvGenerating ? (
+                    <>
+                      <FiLoader className="w-5 h-5 animate-spin" />
+                      Preparing CSV...
+                    </>
+                  ) : (
+                    <>
+                      <FiDownload className="w-5 h-5" />
+                      Download CSV
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={generatePDF}
+                  disabled={isPdfGenerating}
+                  className="flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                >
+                  {isPdfGenerating ? (
+                    <>
+                      <FiLoader className="w-5 h-5 animate-spin" />
+                      Generating PDF...
+                    </>
+                  ) : (
+                    <>
+                      <FiFileText className="w-5 h-5" />
+                      Download PDF
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -550,8 +997,8 @@ function ReportsPageContent() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                    <p className="text-2xl font-bold text-gray-900">€{reportData.totalRevenue.toFixed(2)}</p>
-                    <p className="text-xs text-green-600">Paid: €{reportData.totalPaidAmount.toFixed(2)}</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatCurrency(reportData.totalRevenue)}</p>
+                    <p className="text-xs text-green-600">Collected: {formatCurrency(reportData.totalPaidAmount)}</p>
                   </div>
                   <div className="bg-green-100 p-3 rounded-lg">
                     <FiDollarSign className="w-6 h-6 text-green-600" />
@@ -563,7 +1010,7 @@ function ReportsPageContent() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Outstanding Amount</p>
-                    <p className="text-2xl font-bold text-red-600">€{reportData.totalOutstanding.toFixed(2)}</p>
+                    <p className="text-2xl font-bold text-red-600">{formatCurrency(reportData.totalOutstanding)}</p>
                     <p className="text-xs text-gray-500">{reportData.partialOrders + reportData.unpaidOrders} orders</p>
                   </div>
                   <div className="bg-red-100 p-3 rounded-lg">
@@ -602,52 +1049,6 @@ function ReportsPageContent() {
             </div>
           )}
 
-          {/* Charts Section */}
-          {reportData && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-              {/* Revenue Trend Chart */}
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Revenue Trend</h3>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={reportData.dailyRevenue}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [`€${Number(value).toFixed(2)}`, 'Revenue']} />
-                      <Line type="monotone" dataKey="revenue" stroke="#ef4444" strokeWidth={3} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Payment Status Chart */}
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Status</h3>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={reportData.paymentStatus}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percentage }) => `${name}: ${percentage.toFixed(1)}%`}
-                      >
-                        {reportData.paymentStatus.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={getPaymentStatusColor(entry.name)} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => [`€${Number(value).toFixed(2)}`, 'Amount']} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Top Products and Customers */}
           {reportData && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -662,7 +1063,7 @@ function ReportsPageContent() {
                         <p className="text-sm text-gray-500">{product.quantity} units sold</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-gray-900">€{product.revenue.toFixed(2)}</p>
+                        <p className="font-semibold text-gray-900">{formatCurrency(product.revenue)}</p>
                       </div>
                     </div>
                   ))}
@@ -678,15 +1079,18 @@ function ReportsPageContent() {
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">{customer.name}</p>
                         <p className="text-sm text-gray-500">{customer.orderCount} orders</p>
+                        {customer.lastOrderDate && (
+                          <p className="text-xs text-gray-400">Last order: {format(new Date(customer.lastOrderDate), 'MMM dd, yyyy')}</p>
+                        )}
                         <div className="flex gap-4 text-xs text-gray-500 mt-1">
-                          <span>Paid: €{customer.totalPaid.toFixed(2)}</span>
+                          <span>Paid: {formatCurrency(customer.totalPaid)}</span>
                           {customer.totalOutstanding > 0 && (
-                            <span className="text-red-600">Due: €{customer.totalOutstanding.toFixed(2)}</span>
+                            <span className="text-red-600">Due: {formatCurrency(customer.totalOutstanding)}</span>
                           )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-gray-900">€{customer.totalSpent.toFixed(2)}</p>
+                        <p className="font-semibold text-gray-900">{formatCurrency(customer.totalSpent)}</p>
                         <span className={`text-xs px-2 py-1 rounded-full ${
                           customer.totalOutstanding === 0 ? 'bg-green-100 text-green-700' : 
                           customer.totalOutstanding <= customer.totalSpent * 0.3 ? 'bg-yellow-100 text-yellow-700' :
@@ -743,10 +1147,10 @@ function ReportsPageContent() {
                           </div>
                         </td>
                         <td className="py-3 px-4 font-medium text-green-600">
-                          €{customer.paidAmount.toFixed(2)}
+                          {formatCurrency(customer.paidAmount)}
                         </td>
                         <td className="py-3 px-4 font-medium text-red-600">
-                          €{customer.unpaidAmount.toFixed(2)}
+                          {formatCurrency(customer.unpaidAmount)}
                         </td>
                         <td className="py-3 px-4 text-gray-600">
                           {customer.lastOrderDate ? format(new Date(customer.lastOrderDate), 'MMM dd, yyyy') : 'Never'}
@@ -801,15 +1205,15 @@ function ReportsPageContent() {
                     </div>
                     <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
                       <p className="text-xs text-blue-100 mb-1">Total Amount</p>
-                      <p className="text-2xl font-bold">€{selectedCustomer.totalAmount.toFixed(2)}</p>
+                      <p className="text-2xl font-bold">{formatCurrency(selectedCustomer.totalAmount)}</p>
                     </div>
                     <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
                       <p className="text-xs text-blue-100 mb-1">Paid</p>
-                      <p className="text-2xl font-bold text-green-300">€{selectedCustomer.paidAmount.toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-green-300">{formatCurrency(selectedCustomer.paidAmount)}</p>
                     </div>
                     <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
                       <p className="text-xs text-blue-100 mb-1">Outstanding</p>
-                      <p className="text-2xl font-bold text-red-300">€{selectedCustomer.unpaidAmount.toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-red-300">{formatCurrency(selectedCustomer.unpaidAmount)}</p>
                     </div>
                   </div>
                 </div>
@@ -824,139 +1228,253 @@ function ReportsPageContent() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Invoice History</h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Showing all {customerInvoices.length} invoice{customerInvoices.length !== 1 ? 's' : ''} for this customer
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        // Export to CSV functionality
-                        const csvContent = [
-                          ['Invoice #', 'Date', 'Due Date', 'Total Amount', 'Paid Amount', 'Outstanding', 'Payment Status', 'Payment Method', 'Order Status'].join(','),
-                          ...customerInvoices.map(inv => [
-                            inv.invoiceNumber,
-                            format(new Date(inv.invoiceDate), 'yyyy-MM-dd'),
-                            format(new Date(inv.dueDate), 'yyyy-MM-dd'),
-                            inv.totalAmount.toFixed(2),
-                            inv.paidAmount.toFixed(2),
-                            inv.outstandingAmount.toFixed(2),
-                            inv.paymentStatus,
-                            inv.paymentMethod,
-                            inv.orderStatus
-                          ].join(','))
-                        ].join('\n');
-                        
-                        const blob = new Blob([csvContent], { type: 'text/csv' });
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${selectedCustomer.name}-invoices-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <FiDownload className="w-4 h-4" />
-                      Export to CSV
-                    </button>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                    {customerInvoices.length === 0 ? (
-                      <div className="p-12 text-center text-gray-500">
-                        <FiFileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                        <p className="text-lg font-medium">No invoices found</p>
-                        <p className="text-sm mt-1">This customer hasn&apos;t placed any orders yet.</p>
+                <>
+                  {/* Invoices Section */}
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Invoice History</h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Showing all {customerInvoices.length} invoice{customerInvoices.length !== 1 ? 's' : ''} for this customer
+                        </p>
                       </div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice #</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice Date</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Due Date</th>
-                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Total Amount</th>
-                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Paid Amount</th>
-                            <th className="text-right py-3 px-4 font-semibold text-gray-700">Outstanding</th>
-                            <th className="text-center py-3 px-4 font-semibold text-gray-700">Payment Status</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-700">Payment Method</th>
-                            <th className="text-center py-3 px-4 font-semibold text-gray-700">Order Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {customerInvoices.map((invoice) => (
-                            <tr key={invoice.orderId} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">
-                                <span className="font-mono text-xs font-medium text-blue-600">
-                                  {invoice.invoiceNumber}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-gray-900">
-                                {format(new Date(invoice.invoiceDate), 'MMM dd, yyyy')}
-                              </td>
-                              <td className="py-3 px-4 text-gray-600">
-                                {format(new Date(invoice.dueDate), 'MMM dd, yyyy')}
-                              </td>
-                              <td className="py-3 px-4 text-right font-medium text-gray-900">
-                                €{invoice.totalAmount.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-4 text-right font-medium text-green-600">
-                                €{invoice.paidAmount.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-4 text-right font-medium text-red-600">
-                                €{invoice.outstandingAmount.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                  invoice.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
-                                  invoice.paymentStatus === 'partial' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-red-100 text-red-700'
-                                }`}>
-                                  {invoice.paymentStatus === 'paid' ? 'Paid' :
-                                   invoice.paymentStatus === 'partial' ? 'Partial' : 'Unpaid'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-gray-600 text-xs">
-                                {invoice.paymentMethod}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                  invoice.orderStatus === 'delivered' ? 'bg-green-100 text-green-700' :
-                                  invoice.orderStatus === 'shipped' ? 'bg-blue-100 text-blue-700' :
-                                  invoice.orderStatus === 'processing' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {invoice.orderStatus.charAt(0).toUpperCase() + invoice.orderStatus.slice(1)}
-                                </span>
-                              </td>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={exportCustomerInvoicesCsv}
+                          disabled={isCustomerCsvGenerating}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isCustomerCsvGenerating ? (
+                            <>
+                              <FiLoader className="w-4 h-4 animate-spin" />
+                              Exporting...
+                            </>
+                          ) : (
+                            <>
+                              <FiDownload className="w-4 h-4" />
+                              Export to CSV
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={generateCustomerReportPDF}
+                          disabled={isGeneratingCustomerPdf}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isGeneratingCustomerPdf ? (
+                            <>
+                              <FiLoader className="w-4 h-4 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <FiFileText className="w-4 h-4" />
+                              Generate PDF Report
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                      {customerInvoices.length === 0 ? (
+                        <div className="p-12 text-center text-gray-500">
+                          <FiFileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                          <p className="text-lg font-medium">No invoices found</p>
+                          <p className="text-sm mt-1">This customer hasn&apos;t placed any orders yet.</p>
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice #</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice Date</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Due Date</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-700">Total Amount</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-700">Paid Amount</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-700">Outstanding</th>
+                              <th className="text-center py-3 px-4 font-semibold text-gray-700">Payment Status</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Payment Method</th>
+                              <th className="text-center py-3 px-4 font-semibold text-gray-700">Order Status</th>
                             </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                          <tr>
-                            <td colSpan={3} className="py-4 px-4 text-right font-bold text-gray-900">
-                              TOTALS:
-                            </td>
-                            <td className="py-4 px-4 text-right font-bold text-gray-900">
-                              €{customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0).toFixed(2)}
-                            </td>
-                            <td className="py-4 px-4 text-right font-bold text-green-700">
-                              €{customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0).toFixed(2)}
-                            </td>
-                            <td className="py-4 px-4 text-right font-bold text-red-700">
-                              €{customerInvoices.reduce((sum, inv) => sum + inv.outstandingAmount, 0).toFixed(2)}
-                            </td>
-                            <td colSpan={3}></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    )}
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {customerInvoices.map((invoice) => (
+                              <tr key={invoice.orderId} className="hover:bg-gray-50">
+                                <td className="py-3 px-4">
+                                  <span className="font-mono text-xs font-medium text-blue-600">
+                                    {invoice.invoiceNumber}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-gray-900">
+                                  {format(new Date(invoice.invoiceDate), 'MMM dd, yyyy')}
+                                </td>
+                                <td className="py-3 px-4 text-gray-600">
+                                  {format(new Date(invoice.dueDate), 'MMM dd, yyyy')}
+                                </td>
+                                <td className="py-3 px-4 text-right font-medium text-gray-900">
+                                  {formatCurrency(invoice.totalAmount)}
+                                </td>
+                                <td className="py-3 px-4 text-right font-medium text-green-600">
+                                  {formatCurrency(invoice.paidAmount)}
+                                </td>
+                                <td className="py-3 px-4 text-right font-medium text-red-600">
+                                  {formatCurrency(invoice.outstandingAmount)}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                    invoice.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                                    invoice.paymentStatus === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {invoice.paymentStatus === 'paid' ? 'Paid' :
+                                     invoice.paymentStatus === 'partial' ? 'Partial' : 'Unpaid'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-gray-600 text-xs">
+                                  {invoice.paymentMethod}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                    invoice.orderStatus === 'delivered' ? 'bg-green-100 text-green-700' :
+                                    invoice.orderStatus === 'shipped' ? 'bg-blue-100 text-blue-700' :
+                                    invoice.orderStatus === 'processing' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-gray-100 text-gray-700'
+                                  }`}>
+                                    {invoice.orderStatus.charAt(0).toUpperCase() + invoice.orderStatus.slice(1)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                            <tr>
+                              <td colSpan={3} className="py-4 px-4 text-right font-bold text-gray-900">
+                                INVOICE TOTALS:
+                              </td>
+                              <td className="py-4 px-4 text-right font-bold text-gray-900">
+                                {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0))}
+                              </td>
+                              <td className="py-4 px-4 text-right font-bold text-green-700">
+                                {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0))}
+                              </td>
+                              <td className="py-4 px-4 text-right font-bold text-red-700">
+                                {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.outstandingAmount, 0))}
+                              </td>
+                              <td colSpan={3}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      )}
+                    </div>
                   </div>
-                </div>
+
+                  {/* Credit Notes Section */}
+                  {customerCreditNotes.length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden mt-6">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-900">Credit Notes</h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {customerCreditNotes.length} credit note{customerCreditNotes.length !== 1 ? 's' : ''} issued
+                        </p>
+                      </div>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Credit Note #</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-700">Amount</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Reason</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Related Invoice</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-700">Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {customerCreditNotes.map((cn) => (
+                              <tr key={cn.id} className="hover:bg-gray-50">
+                                <td className="py-3 px-4">
+                                  <span className="font-mono text-xs font-medium text-red-600">
+                                    {cn.creditNoteNumber}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-gray-900">
+                                  {format(new Date(cn.creditNoteDate), 'MMM dd, yyyy')}
+                                </td>
+                                <td className="py-3 px-4 text-right font-medium text-red-600">
+                                  -{formatCurrency(cn.amount)}
+                                </td>
+                                <td className="py-3 px-4 text-gray-700">
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700">
+                                    {cn.reason}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {cn.relatedInvoiceNumber ? (
+                                    <span className="font-mono text-xs text-blue-600">
+                                      {cn.relatedInvoiceNumber}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-gray-600 text-xs max-w-xs truncate">
+                                  {cn.notes || '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-red-50 border-t-2 border-red-200">
+                            <tr>
+                              <td colSpan={2} className="py-4 px-4 text-right font-bold text-gray-900">
+                                TOTAL CREDIT NOTES:
+                              </td>
+                              <td className="py-4 px-4 text-right font-bold text-red-700">
+                                -{formatCurrency(customerCreditNotes.reduce((sum, cn) => sum + cn.amount, 0))}
+                              </td>
+                              <td colSpan={3}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary Totals */}
+                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-6 shadow-sm mt-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Summary</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <p className="text-xs text-gray-600 mb-1">Total Invoiced</p>
+                        <p className="text-xl font-bold text-gray-900">
+                          {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0))}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <p className="text-xs text-gray-600 mb-1">Credit Notes</p>
+                        <p className="text-xl font-bold text-red-600">
+                          -{formatCurrency(customerCreditNotes.reduce((sum, cn) => sum + cn.amount, 0))}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <p className="text-xs text-gray-600 mb-1">Net Amount</p>
+                        <p className="text-xl font-bold text-gray-900">
+                          {formatCurrency(
+                            customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) -
+                            customerCreditNotes.reduce((sum, cn) => sum + cn.amount, 0)
+                          )}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <p className="text-xs text-gray-600 mb-1">Balance Due</p>
+                        <p className="text-xl font-bold text-blue-600">
+                          {formatCurrency(selectedCustomer.unpaidAmount)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}

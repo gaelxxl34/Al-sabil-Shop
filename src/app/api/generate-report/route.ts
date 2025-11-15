@@ -24,7 +24,7 @@ interface PaymentStatus {
 
 export async function POST(request: NextRequest) {
   try {
-    const { reportData, reportPeriod, selectedDate } = await request.json();
+    const { reportData, reportPeriod, selectedDate, customStartDate, customEndDate } = await request.json();
 
     if (!reportData) {
       return NextResponse.json({ error: 'Report data is required' }, { status: 400 });
@@ -32,6 +32,10 @@ export async function POST(request: NextRequest) {
 
     // Calculate date range for display
     const getDateRangeText = () => {
+      if (reportPeriod === 'custom' && customStartDate && customEndDate) {
+        return `${format(new Date(customStartDate), 'MMM dd, yyyy')} - ${format(new Date(customEndDate), 'MMM dd, yyyy')}`;
+      }
+      
       const selectedDateObj = new Date(selectedDate);
       
       switch (reportPeriod) {
@@ -45,16 +49,13 @@ export async function POST(request: NextRequest) {
           return format(selectedDateObj, 'MMMM yyyy');
         case 'annually':
           return format(selectedDateObj, 'yyyy');
-        case 'custom':
-          return reportData.startDate && reportData.endDate 
-            ? `${format(new Date(reportData.startDate), 'MMM dd, yyyy')} - ${format(new Date(reportData.endDate), 'MMM dd, yyyy')}`
-            : format(selectedDateObj, 'MMMM dd, yyyy');
         default:
           return format(selectedDateObj, 'MMMM dd, yyyy');
       }
     };
 
     const dateRangeText = getDateRangeText();
+    const periodLabel = reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1);
 
     // Generate HTML content for the report
     const htmlContent = `
@@ -235,7 +236,7 @@ export async function POST(request: NextRequest) {
               </div>
               <h1 class="report-title">Financial Report</h1>
               <div class="report-meta">
-                <div><strong>${reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1)} Report:</strong> ${dateRangeText}</div>
+                <div><strong>${periodLabel} Report:</strong> ${dateRangeText}</div>
                 <div>Generated on: ${format(new Date(), 'MMMM dd, yyyy')}</div>
               </div>
             </div>

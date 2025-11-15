@@ -150,6 +150,10 @@ export const orderApi = {
     paymentAmount?: number;
     paymentMethod?: 'cash' | 'bank_transfer' | 'credit' | 'other';
     paymentNotes?: string;
+    // Credit note fields
+    creditNoteAmount?: number;
+    creditNoteReason?: 'returned_goods' | 'quality_issue' | 'wrong_items' | 'damaged_goods' | 'pricing_error' | 'customer_complaint' | 'other';
+    creditNoteNotes?: string;
   }): Promise<{ success: boolean; data: Order; message: string }> {
     return apiFetch<{ success: boolean; data: Order; message: string }>(`/api/orders/${id}`, {
       method: 'PUT',

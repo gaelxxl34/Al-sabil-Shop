@@ -11,7 +11,9 @@ import { useAuth } from '@/components/AuthProvider';
 import { orderApi, customerApi } from '@/lib/api-client';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
-import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX } from 'react-icons/fi';
+import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX, FiFileText } from 'react-icons/fi';
+import DeliveryNote from '@/components/DeliveryNote';
+import Invoice from '@/components/Invoice';
 import { Skeleton } from '@/components/SkeletonLoader';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -109,6 +111,11 @@ export default function SellerOrdersPage() {
     status: ''
   });
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+  
+  // Document visibility state
+  const [showDeliveryNoteModal, setShowDeliveryNoteModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedOrderForDocument, setSelectedOrderForDocument] = useState<Order | null>(null);
 
   const hasFetchedInitialRef = useRef(false); // Prevent duplicate initial fetch (e.g. React Strict Mode)
 
@@ -380,6 +387,32 @@ export default function SellerOrdersPage() {
     return `#${orderId.slice(-8).toUpperCase()}`;
   };
 
+  const generateDeliveryNoteNumber = (order: Order) => {
+    const date = new Date(order.createdAt);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const orderSuffix = order.id.slice(-6).toUpperCase();
+    return `DN-${year}${month}-${orderSuffix}`;
+  };
+
+  const generateInvoiceNumber = (order: Order) => {
+    const date = new Date(order.createdAt);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const orderSuffix = order.id.slice(-6).toUpperCase();
+    return `INV-${year}${month}-${orderSuffix}`;
+  };
+
+  const openDeliveryNote = (order: Order) => {
+    setSelectedOrderForDocument(order);
+    setShowDeliveryNoteModal(true);
+  };
+
+  const openInvoice = (order: Order) => {
+    setSelectedOrderForDocument(order);
+    setShowInvoiceModal(true);
+  };
+
   const getAvailableActions = (order: Order) => {
     const actions = [];
     
@@ -394,6 +427,21 @@ export default function SellerOrdersPage() {
         View
       </Link>
     );
+
+    // Add delivery note button for prepared or delivered orders
+    if (order.status === 'prepared' || order.status === 'delivered') {
+      actions.push(
+        <button
+          key="deliveryNote"
+          onClick={() => openDeliveryNote(order)}
+          className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+          title="View/Print Delivery Note"
+        >
+          <FiFileText className="inline mr-1" />
+          Delivery Note
+        </button>
+      );
+    }
 
     switch (order.status) {
       case 'pending':
@@ -663,7 +711,7 @@ export default function SellerOrdersPage() {
             </div>
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <div className="flex items-center">
-                <div className="text-red-700 text-2xl mr-3 font-bold">€</div>
+                <FiAlertCircle className="text-red-700 text-2xl mr-3" />
                 <div>
                   <p className="text-sm text-red-700 font-medium">Outstanding</p>
                   <p className="text-2xl font-bold text-red-800">
@@ -878,6 +926,64 @@ export default function SellerOrdersPage() {
           }
         ]}
       />
+
+      {/* Delivery Note Modal */}
+      {showDeliveryNoteModal && selectedOrderForDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Delivery Note - {formatOrderId(selectedOrderForDocument.id)}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowDeliveryNoteModal(false);
+                  setSelectedOrderForDocument(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <FiX className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto">
+              <DeliveryNote 
+                order={selectedOrderForDocument}
+                customer={customers[selectedOrderForDocument.customerId]}
+                deliveryNoteNumber={generateDeliveryNoteNumber(selectedOrderForDocument)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Modal */}
+      {showInvoiceModal && selectedOrderForDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Invoice - {formatOrderId(selectedOrderForDocument.id)}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowInvoiceModal(false);
+                  setSelectedOrderForDocument(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <FiX className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto">
+              <Invoice 
+                order={selectedOrderForDocument}
+                customer={customers[selectedOrderForDocument.customerId]}
+                invoiceNumber={generateInvoiceNumber(selectedOrderForDocument)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </SellerGuard>
   );

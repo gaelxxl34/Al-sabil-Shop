@@ -230,11 +230,54 @@ const Invoice: React.FC<InvoiceProps> = ({
                   <span className="font-semibold">{formatCurrency(order.deliveryFee)}</span>
                 </div>
               )}
+
+              {order.originalTotal && order.originalTotal !== order.total && (
+                <div className="flex justify-between py-2 border-b border-gray-200 text-sm sm:text-base">
+                  <span className="text-gray-700">Original Total:</span>
+                  <span className="font-semibold">{formatCurrency(order.originalTotal)}</span>
+                </div>
+              )}
+
+              {order.creditNotes && order.creditNotes.length > 0 && (
+                <div className="border-b border-gray-200 pb-2">
+                  <div className="flex justify-between py-2 text-sm sm:text-base">
+                    <span className="text-gray-700 font-semibold">Credit Notes Applied:</span>
+                    <span className="font-semibold text-orange-600">-{formatCurrency(order.totalCreditNotes || 0)}</span>
+                  </div>
+                  <div className="pl-4 space-y-1">
+                    {order.creditNotes.map((creditNote) => (
+                      <div key={creditNote.id} className="text-xs text-gray-600">
+                        <span className="capitalize">Reason: {creditNote.reason.replace(/_/g, ' ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               
               <div className="flex justify-between py-3 border-t-2 border-gray-400 bg-gray-50 px-3 sm:px-4 rounded">
                 <span className="text-lg sm:text-xl font-bold text-gray-900">Total Amount:</span>
                 <span className="text-lg sm:text-xl font-bold text-red-600">{formatCurrency(totalAmount)}</span>
               </div>
+
+              {order.totalPaid > 0 && (
+                <div className="flex justify-between py-2 px-3 sm:px-4 text-sm sm:text-base">
+                  <span className="text-green-600 font-bold">Amount Paid:</span>
+                  <span className="text-green-600 font-bold">{formatCurrency(order.totalPaid)}</span>
+                </div>
+              )}
+
+              {order.remainingAmount > 0 && (
+                <div className="flex justify-between py-2 px-3 sm:px-4 text-sm sm:text-base">
+                  <span className="text-red-600 font-bold">Amount Due:</span>
+                  <span className="text-red-600 font-bold">{formatCurrency(order.remainingAmount)}</span>
+                </div>
+              )}
+
+              {order.paymentStatus === 'paid' && order.totalPaid > 0 && (
+                <div className="mt-2 p-3 bg-green-100 border border-green-500 rounded text-green-700 text-center font-bold text-xs sm:text-sm">
+                  ✓ PAID IN FULL
+                </div>
+              )}
             </div>
           </div>
         </div>

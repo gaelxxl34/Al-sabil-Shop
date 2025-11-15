@@ -394,10 +394,45 @@ export async function POST(request: NextRequest) {
                   <span><strong>${formatCurrency(order.deliveryFee)}</strong></span>
                 </div>
               ` : ''}
+              ${order.originalTotal && order.originalTotal !== order.total ? `
+                <div class="totals-row">
+                  <span>Original Total:</span>
+                  <span><strong>${formatCurrency(order.originalTotal)}</strong></span>
+                </div>
+              ` : ''}
+              ${order.creditNotes && order.creditNotes.length > 0 ? `
+                <div class="totals-row" style="border-bottom: none; padding-bottom: 4px;">
+                  <span style="color: #f97316; font-weight: bold;">Credit Notes Applied:</span>
+                  <span style="color: #f97316; font-weight: bold;">-${formatCurrency(order.totalCreditNotes || 0)}</span>
+                </div>
+                ${order.creditNotes.map(creditNote => `
+                  <div style="padding: 4px 0 4px 16px; font-size: 11px; color: #666;">
+                    <span style="text-transform: capitalize;">Reason: ${creditNote.reason.replace(/_/g, ' ')}</span>
+                  </div>
+                `).join('')}
+                <div style="border-bottom: 1px solid #e5e7eb; margin-top: 8px;"></div>
+              ` : ''}
               <div class="totals-total">
                 <span>Total Amount:</span>
                 <span class="amount">${formatCurrency(totalAmount)}</span>
               </div>
+              ${order.totalPaid > 0 ? `
+                <div class="totals-row" style="margin-top: 8px; color: #16a34a;">
+                  <span style="font-weight: bold;">Amount Paid:</span>
+                  <span style="font-weight: bold;">${formatCurrency(order.totalPaid)}</span>
+                </div>
+              ` : ''}
+              ${order.remainingAmount > 0 ? `
+                <div class="totals-row" style="color: #dc2626;">
+                  <span style="font-weight: bold;">Amount Due:</span>
+                  <span style="font-weight: bold;">${formatCurrency(order.remainingAmount)}</span>
+                </div>
+              ` : ''}
+              ${order.paymentStatus === 'paid' && order.totalPaid > 0 ? `
+                <div style="margin-top: 8px; padding: 8px; background: #dcfce7; border-radius: 4px; text-align: center; color: #16a34a; font-weight: bold;">
+                  ✓ PAID IN FULL
+                </div>
+              ` : ''}
             </div>
           </div>
 
