@@ -1,18 +1,22 @@
-// src/app/sellexport default function SellerProductsPage() {e.tsx
-// TODO: List all products (edit/delete)
-
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { GiMeat } from "react-icons/gi";
+import { FiMenu } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
 import SellerHeader from "@/components/SellerHeader";
+import AdminSidebar from "@/components/AdminSidebar";
+import AdminSidebarDrawer from "@/components/AdminSidebarDrawer";
 import SkeletonComponents from "@/components/SkeletonLoader";
 import ProductImage from "@/components/ProductImage";
-import { productApi } from "@/lib/api-client";
+import SellerGuard from "@/components/SellerGuard";
+import { useAuth } from "@/components/AuthProvider";
+import { productApi, apiFetch } from "@/lib/api-client";
 import { Product } from "@/types/product";
+
+type SellerOption = { id: string; name: string };
 
 export default function SellerProducts() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -24,16 +28,24 @@ export default function SellerProducts() {
     show: false,
     product: null
   });
+  const [sellerFilter, setSellerFilter] = useState<string>("all");
+  const [sellers, setSellers] = useState<SellerOption[]>([]);
+  const [sellerLookup, setSellerLookup] = useState<Record<string, string>>({});
+  const { userData } = useAuth();
+  const isAdmin = userData?.role === 'admin';
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  const selectedSellerId = useMemo(() => {
+    if (isAdmin && sellerFilter !== 'all') {
+      return sellerFilter;
+    }
+    return undefined;
+  }, [isAdmin, sellerFilter]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async (filterSellerId?: string) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await productApi.getProducts();
+      const response = await productApi.getProducts(filterSellerId);
       setProducts(response.data);
     } catch (err: unknown) {
       const error = err as Error;
@@ -41,8 +53,44 @@ export default function SellerProducts() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  useEffect(() => {
+    const load = async () => {
+      await fetchProducts(selectedSellerId);
+    };
+    load();
+  }, [fetchProducts, selectedSellerId]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    const loadSellers = async () => {
+      try {
+        const response = await apiFetch<{ success: boolean; data: Array<{ id: string; displayName: string; email: string; role: string }> }>('/api/users');
+        if (response.success) {
+          const sellerOptions = response.data
+            .filter((user) => user.role === 'seller')
+            .map((user) => ({
+              id: user.id,
+              name: user.displayName || user.email,
+            }));
+          const lookup: Record<string, string> = {};
+          sellerOptions.forEach((seller) => {
+            lookup[seller.id] = seller.name;
+          });
+          setSellers(sellerOptions);
+          setSellerLookup(lookup);
+        }
+      } catch (err) {
+        console.error('Failed to load sellers', err);
+      }
+    };
+
+    loadSellers();
+  }, [isAdmin]);
   const handleDelete = async (productId: string) => {
     setDeleteModal({ show: false, product: null });
     
@@ -66,22 +114,49 @@ export default function SellerProducts() {
   const closeDeleteModal = () => {
     setDeleteModal({ show: false, product: null });
   };
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      {/* Sidebar */}
-      <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-        <SellerSidebar />
+  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
+    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={onMenuClick}
+          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          aria-label="Open menu"
+        >
+          <FiMenu className="w-6 h-6" />
+        </button>
+        <div className="text-gray-900 font-semibold">Admin Products</div>
+        <div className="w-6" />
       </div>
-      
-      {/* Mobile Header */}
-      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
-      
-      {/* Mobile Sidebar Drawer */}
-      <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
-      {/* Main Content - Scrollable area with sidebar offset */}
-      <main className="flex-1 md:ml-64 overflow-y-auto">
-        <div className="w-full max-w-6xl mx-auto px-4 pt-6 pb-8 flex flex-col gap-6">
+    </header>
+  );
+
+  const appliedSellerLookup = isAdmin ? sellerLookup : {};
+
+  return (
+    <SellerGuard allowedRoles={['seller', 'admin']}>
+      <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+        {/* Sidebar */}
+        <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
+          {isAdmin ? <AdminSidebar /> : <SellerSidebar />}
+        </div>
+        
+        {/* Mobile Header */}
+        {isAdmin ? (
+          <AdminMobileHeader onMenuClick={() => setSidebarOpen(true)} />
+        ) : (
+          <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+        )}
+        
+        {/* Mobile Sidebar Drawer */}
+        {isAdmin ? (
+          <AdminSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        ) : (
+          <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        )}
+        
+        {/* Main Content - Scrollable area with sidebar offset */}
+        <main className="flex-1 md:ml-64 overflow-y-auto">
+          <div className="w-full max-w-6xl mx-auto px-4 pt-6 pb-8 flex flex-col gap-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
             <h1 className="text-2xl font-bold text-gray-900">Products</h1>
             <Link
@@ -91,12 +166,32 @@ export default function SellerProducts() {
               + Add New Product
             </Link>
           </div>
+
+            {isAdmin && (
+              <div className="bg-white border border-gray-200 rounded-lg p-4 flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Seller</label>
+                  <select
+                    value={sellerFilter}
+                    onChange={(event) => setSellerFilter(event.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-700 focus:border-red-700"
+                  >
+                    <option value="all">All Sellers</option>
+                    {sellers.map((seller) => (
+                      <option key={seller.id} value={seller.id}>
+                        {seller.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
               <p className="text-red-700 text-sm">{error}</p>
               <button 
-                onClick={fetchProducts}
+                onClick={() => fetchProducts(selectedSellerId)}
                 className="mt-2 text-red-700 hover:text-red-800 text-sm font-medium"
               >
                 Try again
@@ -162,6 +257,11 @@ export default function SellerProducts() {
                         <span className="inline-block px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full capitalize">
                           {product.category}
                         </span>
+                        {isAdmin && (
+                          <span className="text-xs text-gray-500">
+                            Seller: {appliedSellerLookup[product.sellerId] || product.sellerId.slice(-6)}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-500">
                           Added {new Date(product.createdAt).toISOString().split('T')[0]}
                         </span>
@@ -247,5 +347,6 @@ export default function SellerProducts() {
         </div>
       )}
     </div>
+    </SellerGuard>
   );
 }

@@ -79,6 +79,8 @@ export async function GET(
       if (user.uid !== customerId) {
         return NextResponse.json({ error: 'Access denied. You can only access your own data.' }, { status: 403 });
       }
+    } else if (user.role === 'admin') {
+      // Admins can view any customer for oversight and support purposes
     } else {
       return NextResponse.json({ error: 'Access denied. Invalid user role.' }, { status: 403 });
     }

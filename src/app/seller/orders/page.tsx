@@ -6,12 +6,14 @@ import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerHeader from '@/components/SellerHeader';
 import SellerGuard from '@/components/SellerGuard';
+import AdminSidebar from '@/components/AdminSidebar';
+import AdminSidebarDrawer from '@/components/AdminSidebarDrawer';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { useAuth } from '@/components/AuthProvider';
 import { orderApi, customerApi } from '@/lib/api-client';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
-import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX, FiFileText } from 'react-icons/fi';
+import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX, FiFileText, FiMenu } from 'react-icons/fi';
 import DeliveryNote from '@/components/DeliveryNote';
 import Invoice from '@/components/Invoice';
 import { Skeleton } from '@/components/SkeletonLoader';
@@ -95,6 +97,8 @@ export default function SellerOrdersPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'credit' | 'other'>('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const canManagePayments = userData?.role === 'admin';
+  const isAdmin = userData?.role === 'admin';
   
   // Delete confirmation modal state
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -205,9 +209,17 @@ export default function SellerOrdersPage() {
       return;
     }
     
-    if (!userData || userData.role !== 'seller') {
-      console.log('⚠️ Orders page: waiting for seller user data...', { userData: userData?.role });
-      return; // wait for proper role
+    if (!userData) {
+      console.log('⚠️ Orders page: waiting for user data...');
+      return;
+    }
+
+    const allowedRoles: Array<'seller' | 'admin'> = ['seller', 'admin'];
+    if (!allowedRoles.includes(userData.role as 'seller' | 'admin')) {
+      console.log('⛔ Orders page: role not permitted', { role: userData.role });
+      setError('You do not have permission to view orders.');
+      setIsLoading(false);
+      return;
     }
     if (!user) {
       console.log('⚠️ Orders page: waiting for firebase auth user...');
@@ -295,6 +307,9 @@ export default function SellerOrdersPage() {
   };
 
   const openPaymentModal = (order: Order) => {
+    if (!canManagePayments) {
+      return;
+    }
     setPaymentModalOrder(order);
     setPaymentAmount('');
     setPaymentNotes('');
@@ -441,6 +456,18 @@ export default function SellerOrdersPage() {
           Delivery Note
         </button>
       );
+
+      actions.push(
+        <button
+          key="invoice"
+          onClick={() => openInvoice(order)}
+          className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+          title="View/Print Invoice"
+        >
+          <FiDollarSign className="inline mr-1" />
+          Invoice
+        </button>
+      );
     }
 
     switch (order.status) {
@@ -487,7 +514,7 @@ export default function SellerOrdersPage() {
         );
         break;
       case 'delivered':
-        if (order.paymentStatus === 'pending' || order.paymentStatus === 'partial') {
+        if (canManagePayments && (order.paymentStatus === 'pending' || order.paymentStatus === 'partial')) {
           actions.push(
             <button
               key="recordPayment"
@@ -520,10 +547,10 @@ export default function SellerOrdersPage() {
 
   // Toast Component
   // Skeleton loading component for seller orders page
-  const OrdersPageSkeleton = () => (
+  const OrdersPageSkeleton = ({ showAdminView = false }: { showAdminView?: boolean }) => (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-        <SellerSidebar />
+        {showAdminView ? <AdminSidebar /> : <SellerSidebar />}
       </div>
       <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
         <div className="w-full max-w-6xl mx-auto px-4 py-8">
@@ -609,23 +636,47 @@ export default function SellerOrdersPage() {
   );
 
   if (authLoading || isLoading) {
-    return <OrdersPageSkeleton />;
+    return <OrdersPageSkeleton showAdminView={isAdmin} />;
   }
 
+  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
+    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={onMenuClick}
+          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          aria-label="Open menu"
+        >
+          <FiMenu className="w-6 h-6" />
+        </button>
+        <div className="text-gray-900 font-semibold">Admin Orders</div>
+        <div className="w-6" />
+      </div>
+    </header>
+  );
+
   return (
-    <SellerGuard>
+    <SellerGuard allowedRoles={['seller', 'admin']}>
       <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
         
         {/* Sidebar - Fixed positioning */}
         <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-          <SellerSidebar />
+          {isAdmin ? <AdminSidebar /> : <SellerSidebar />}
         </div>
 
       {/* Mobile Header */}
-      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      {isAdmin ? (
+        <AdminMobileHeader onMenuClick={() => setSidebarOpen(true)} />
+      ) : (
+        <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      )}
 
       {/* Mobile Sidebar Drawer */}
-      <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {isAdmin ? (
+        <AdminSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      ) : (
+        <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      )}
 
       {/* Main Content */}
       <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
@@ -804,7 +855,7 @@ export default function SellerOrdersPage() {
       </main>
 
       {/* Payment Modal */}
-      {paymentModalOrder && (
+      {canManagePayments && paymentModalOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">

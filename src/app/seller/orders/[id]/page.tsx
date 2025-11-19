@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerGuard from '@/components/SellerGuard';
+import { useAuth } from '@/components/AuthProvider';
 import { orderApi, customerApi } from '@/lib/api-client';
 import { Order, OrderItem } from '@/types/cart';
 import { Customer } from '@/types/customer';
@@ -63,6 +64,9 @@ export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
   const orderId = params?.id as string;
+  const { userData } = useAuth();
+  const canManagePayments = userData?.role === 'admin';
+  const canViewInvoices = userData?.role === 'admin';
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
@@ -230,6 +234,9 @@ export default function OrderDetailPage() {
   };
 
   const handleRecordPayment = async () => {
+    if (!canManagePayments) {
+      return;
+    }
     if (!order || !paymentAmount || parseFloat(paymentAmount) <= 0) {
       showToastMessage('Please enter a valid payment amount');
       return;
@@ -269,6 +276,9 @@ export default function OrderDetailPage() {
   };
 
   const openPaymentModal = () => {
+    if (!canManagePayments) {
+      return;
+    }
     setPaymentAmount('');
     setPaymentNotes('');
     setPaymentMethod('cash');
@@ -276,6 +286,9 @@ export default function OrderDetailPage() {
   };
 
   const openCreditNoteModal = () => {
+    if (!canManagePayments) {
+      return;
+    }
     setCreditNoteAmount('');
     setCreditNoteNotes('');
     setCreditNoteReason('returned_goods');
@@ -283,6 +296,9 @@ export default function OrderDetailPage() {
   };
 
   const handleIssueCreditNote = async () => {
+    if (!canManagePayments) {
+      return;
+    }
     if (!order || !creditNoteAmount || parseFloat(creditNoteAmount) <= 0) {
       showToastMessage('Please enter a valid credit note amount');
       return;
@@ -365,7 +381,7 @@ export default function OrderDetailPage() {
 
   if (isLoading) {
     return (
-      <SellerGuard>
+      <SellerGuard allowedRoles={['seller', 'admin']}>
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
           <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
             <SellerSidebar />
@@ -392,7 +408,7 @@ export default function OrderDetailPage() {
 
   if (!order) {
     return (
-      <SellerGuard>
+      <SellerGuard allowedRoles={['seller', 'admin']}>
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
           <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
             <SellerSidebar />
@@ -420,7 +436,7 @@ export default function OrderDetailPage() {
   const hasChanges = JSON.stringify(editedItems) !== JSON.stringify(order.items) || editedDeliveryFee !== order.deliveryFee;
 
   return (
-    <SellerGuard>
+    <SellerGuard allowedRoles={['seller', 'admin']}>
       <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
         <Toast />
 
@@ -898,7 +914,7 @@ export default function OrderDetailPage() {
                       
                       {order.status === 'confirmed' && (
                         <>
-                          {(order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
+                          {canManagePayments && (order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
                             <button
                               onClick={openPaymentModal}
                               className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-semibold"
@@ -917,7 +933,7 @@ export default function OrderDetailPage() {
                       
                       {order.status === 'prepared' && (
                         <>
-                          {(order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
+                          {canManagePayments && (order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
                             <button
                               onClick={openPaymentModal}
                               className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-semibold"
@@ -934,7 +950,7 @@ export default function OrderDetailPage() {
                         </>
                       )}
 
-                      {order.status === 'delivered' && (order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
+                      {canManagePayments && order.status === 'delivered' && (order.paymentStatus === 'pending' || order.paymentStatus === 'partial') && (
                         <button
                           onClick={openPaymentModal}
                           className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-semibold"
@@ -944,7 +960,7 @@ export default function OrderDetailPage() {
                       )}
 
                       {/* Issue Credit Note button - Available for all statuses except cancelled */}
-                      {order.status !== 'cancelled' && order.total > 0 && (
+                      {canManagePayments && order.status !== 'cancelled' && order.total > 0 && (
                         <button
                           onClick={openCreditNoteModal}
                           className="w-full bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition-colors text-sm"
@@ -965,7 +981,7 @@ export default function OrderDetailPage() {
                           </button>
                         )}
                         
-                        {(order.status === 'confirmed' || order.status === 'prepared' || order.status === 'delivered') && (
+                        {canViewInvoices && (order.status === 'confirmed' || order.status === 'prepared' || order.status === 'delivered') && (
                           <button
                             onClick={() => setShowInvoiceModal(true)}
                             className="w-full bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition-colors text-sm flex items-center justify-center gap-2"
@@ -1000,7 +1016,7 @@ export default function OrderDetailPage() {
         </main>
 
         {/* Payment Modal */}
-        {showPaymentModal && order && (
+        {canManagePayments && showPaymentModal && order && (
           <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1097,7 +1113,7 @@ export default function OrderDetailPage() {
         )}
 
         {/* Credit Note Modal */}
-        {showCreditNoteModal && order && (
+        {canManagePayments && showCreditNoteModal && order && (
           <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1237,7 +1253,7 @@ export default function OrderDetailPage() {
         )}
 
         {/* Invoice Modal */}
-        {showInvoiceModal && order && customer && (
+        {canViewInvoices && showInvoiceModal && order && customer && (
           <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
             <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">

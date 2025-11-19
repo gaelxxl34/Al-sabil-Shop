@@ -1,24 +1,26 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { 
-  FiCalendar, 
-  FiDollarSign, 
-  FiUsers, 
-  FiAlertCircle,  
+import {
+  FiCalendar,
+  FiDollarSign,
+  FiUsers,
+  FiAlertCircle,
   FiCheckCircle,
   FiFileText,
   FiLoader,
   FiArrowLeft,
-  FiDownload
+  FiDownload,
+  FiMenu,
 } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
 import SellerHeader from "@/components/SellerHeader";
-import SellerGuard from "@/components/SellerGuard";
+import AdminSidebar from "@/components/AdminSidebar";
+import AdminSidebarDrawer from "@/components/AdminSidebarDrawer";
+import AdminGuard from "@/components/AdminGuard";
 import { useAuth } from "@/components/AuthProvider";
 import SkeletonComponents from "@/components/SkeletonLoader";
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
 
 interface ReportData {
@@ -38,10 +40,17 @@ interface ReportData {
   topCustomers: Array<{ 
     id: string;
     name: string; 
+    email?: string;
+    businessName?: string;
+    companyName?: string;
+    contactPerson?: string;
     totalSpent: number; 
     totalPaid: number;
     totalOutstanding: number;
     orderCount: number; 
+    paidOrders: number;
+    partialOrders: number;
+    unpaidOrders: number;
     status: string;
     lastOrderDate: string | null;
   }>;
@@ -53,6 +62,9 @@ interface CustomerPaymentStatus {
   id: string;
   name: string;
   email: string;
+  businessName?: string;
+  contactPerson?: string;
+  companyName?: string;
   totalOrders: number;
   paidOrders: number;
   partialOrders: number;
@@ -90,23 +102,71 @@ interface CreditNoteDetail {
   relatedInvoiceNumber?: string;
 }
 
-// Color mapping for payment status segments
-const getPaymentStatusColor = (name: string) => {
-  const key = name.toLowerCase();
-  if (key.includes('fully') || key === 'paid') {
-    return '#10b981';
+interface OrderSummary {
+  id: string;
+  createdAt: string;
+  total: number;
+  subtotal: number;
+  deliveryFee: number;
+  totalPaid?: number;
+  paidAmount?: number;
+  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  paymentMethod: string;
+  status: string;
+}
+
+interface TransactionSummary {
+  id: string;
+  type: string;
+  amount: number;
+  notes?: string;
+  transactionDate?: string;
+  createdAt: string;
+  relatedOrderId?: string;
+}
+
+interface SellerOption {
+  id: string;
+  name: string;
+  email: string;
+  companyName?: string;
+}
+
+const resolveCustomerDisplayName = (customer: {
+  name?: string | null;
+  businessName?: string | null;
+  companyName?: string | null;
+  contactPerson?: string | null;
+  email?: string | null;
+}) => {
+  const sanitize = (value?: string | null) => (typeof value === 'string' ? value.trim() : '');
+
+  const nameCandidates = [
+    sanitize(customer.name),
+    sanitize(customer.businessName),
+    sanitize(customer.companyName),
+    sanitize(customer.contactPerson),
+  ];
+
+  const displayName = nameCandidates.find((candidate) => candidate.length > 0);
+  if (displayName) {
+    return displayName;
   }
-  if (key.includes('partial')) {
-    return '#f59e0b';
-  }
-  if (key.includes('outstanding') || key.includes('unpaid')) {
-    return '#ef4444';
-  }
-  return '#6b7280';
+
+  const email = sanitize(customer.email);
+  return email || 'Customer';
 };
 
 function ReportsPageContent() {
-  const { user } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
+  const isAdmin = userData?.role === 'admin';
+  const [selectedSellerId, setSelectedSellerId] = useState('');
+  const [sellerOptions, setSellerOptions] = useState<SellerOption[]>([]);
+  const [isSellerLoading, setIsSellerLoading] = useState(false);
+  const [hasInitializedSeller, setHasInitializedSeller] = useState(false);
+  const userSellerId = user?.uid ?? null;
+  const effectiveSellerId = isAdmin ? selectedSellerId : userSellerId ?? '';
+  const canLoadReports = !isAdmin || Boolean(effectiveSellerId);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'annually' | 'custom'>('weekly');
   const [isLoading, setIsLoading] = useState(true);
@@ -126,7 +186,85 @@ function ReportsPageContent() {
   const [loadingCustomerDetails, setLoadingCustomerDetails] = useState(false);
   const [isGeneratingCustomerPdf, setIsGeneratingCustomerPdf] = useState(false);
 
+  useEffect(() => {
+    if (!effectiveSellerId) {
+      setReportData(null);
+      setCustomerPayments([]);
+      setSelectedCustomer(null);
+      setCustomerInvoices([]);
+      setCustomerCreditNotes([]);
+      return;
+    }
+
+    if (isAdmin) {
+      setReportData(null);
+      setCustomerPayments([]);
+      setSelectedCustomer(null);
+      setCustomerInvoices([]);
+      setCustomerCreditNotes([]);
+    }
+  }, [effectiveSellerId, isAdmin]);
+
+  useEffect(() => {
+    if (authLoading || isAdmin) {
+      return;
+    }
+
+    if (!selectedSellerId && userSellerId) {
+      setSelectedSellerId(userSellerId);
+    }
+  }, [authLoading, isAdmin, selectedSellerId, userSellerId]);
+
+  useEffect(() => {
+    if (authLoading || !isAdmin) {
+      return;
+    }
+
+    if (sellerOptions.length > 0 && hasInitializedSeller) {
+      return;
+    }
+
+    const loadSellers = async () => {
+      try {
+        setIsSellerLoading(true);
+        const response = await fetch('/api/users');
+        if (!response.ok) {
+          console.error('Failed to fetch sellers:', response.status);
+          return;
+        }
+
+        const data = await response.json();
+        const sellers = Array.isArray(data.data)
+          ? data.data.filter((userRecord: { role?: string }) => userRecord.role === 'seller')
+          : [];
+
+        const formatted: SellerOption[] = sellers
+          .map((seller: { id: string; email?: string; displayName?: string; companyName?: string }) => ({
+            id: seller.id,
+            email: seller.email || '',
+            name: seller.displayName || seller.companyName || seller.email || 'Seller',
+            companyName: seller.companyName,
+          }))
+          .sort((a: SellerOption, b: SellerOption) => a.name.localeCompare(b.name));
+
+        setSellerOptions(formatted);
+
+        if (!hasInitializedSeller && formatted.length > 0) {
+          setSelectedSellerId((current) => current || formatted[0].id);
+          setHasInitializedSeller(true);
+        }
+      } catch (error) {
+        console.error('Error fetching sellers:', error);
+      } finally {
+        setIsSellerLoading(false);
+      }
+    };
+
+    loadSellers();
+  }, [authLoading, hasInitializedSeller, isAdmin, sellerOptions.length]);
+
   const formatCurrency = (value: number) => `€${value.toFixed(2)}`;
+  const formatPercent = (value: number) => `${Number.isFinite(value) ? value.toFixed(0) : '0'}%`;
 
   const sanitizeFileName = (value: string) =>
     value
@@ -168,8 +306,7 @@ function ReportsPageContent() {
   };
 
   const loadReportData = useCallback(async () => {
-    if (!user?.uid) {
-      console.error('No authenticated user found');
+    if (!canLoadReports || !effectiveSellerId) {
       setIsLoading(false);
       return;
     }
@@ -177,7 +314,7 @@ function ReportsPageContent() {
     setIsLoading(true);
     try {
       // Build query parameters
-      let queryParams = `period=${reportPeriod}&sellerId=${user.uid}`;
+      let queryParams = `period=${reportPeriod}&sellerId=${encodeURIComponent(effectiveSellerId)}`;
       
       if (reportPeriod === 'custom') {
         // Use custom date range
@@ -200,6 +337,54 @@ function ReportsPageContent() {
         const data = reportsData.data;
         
         // Transform API data to match component expectations
+        const normalizedTopCustomers: ReportData['topCustomers'] = (data.topCustomers as Array<{
+          id: string;
+          name?: string | null;
+          email?: string | null;
+          businessName?: string | null;
+          companyName?: string | null;
+          contactPerson?: string | null;
+          totalSpent: number;
+          totalPaid: number;
+          totalOutstanding: number;
+          orderCount: number;
+          paidOrders: number;
+          partialOrders: number;
+          unpaidOrders: number;
+          status: string;
+          lastOrderDate?: string | null;
+        }>).map((customer) => {
+          const sanitize = (value?: string | null) => {
+            if (typeof value !== 'string') return undefined;
+            const trimmed = value.trim();
+            return trimmed.length > 0 ? trimmed : undefined;
+          };
+
+          return {
+            id: customer.id,
+            name: resolveCustomerDisplayName({
+              name: typeof customer.name === 'string' ? customer.name : null,
+              businessName: customer.businessName,
+              companyName: customer.companyName,
+              contactPerson: customer.contactPerson,
+              email: customer.email,
+            }),
+            email: sanitize(customer.email),
+            businessName: sanitize(customer.businessName),
+            companyName: sanitize(customer.companyName),
+            contactPerson: sanitize(customer.contactPerson),
+            totalSpent: customer.totalSpent,
+            totalPaid: customer.totalPaid,
+            totalOutstanding: customer.totalOutstanding,
+            orderCount: customer.orderCount,
+            paidOrders: customer.paidOrders,
+            partialOrders: customer.partialOrders,
+            unpaidOrders: customer.unpaidOrders,
+            status: customer.status,
+            lastOrderDate: typeof customer.lastOrderDate === 'string' ? customer.lastOrderDate : null,
+          };
+        });
+
         const processedData: ReportData = {
           totalRevenue: data.summary.totalRevenue,
           totalPaidAmount: data.summary.totalPaidAmount,
@@ -214,7 +399,7 @@ function ReportsPageContent() {
           deliveryRevenue: data.summary.deliveryRevenue,
           productRevenue: data.summary.productRevenue,
           dailyRevenue: data.trends,
-          topCustomers: data.topCustomers,
+          topCustomers: normalizedTopCustomers,
           topProducts: data.topProducts,
           paymentStatus: data.paymentAnalysis,
         };
@@ -222,10 +407,13 @@ function ReportsPageContent() {
         setReportData(processedData);
         
         // Process customer payment status
-        const paymentStatus = data.topCustomers.map((customer: { 
+        const paymentStatus = normalizedTopCustomers.map((customer: { 
           id: string;
-          name: string;
-          email: string;
+          name?: string | null;
+          email?: string | null;
+          businessName?: string | null;
+          companyName?: string | null;
+          contactPerson?: string | null;
           orderCount: number;
           paidOrders: number;
           partialOrders: number;
@@ -250,10 +438,15 @@ function ReportsPageContent() {
             status = 'overdue';
           }
 
+          const displayName = resolveCustomerDisplayName(customer);
+
           return {
             id: customer.id,
-            name: customer.name,
-            email: customer.email,
+            name: displayName,
+            email: customer.email ?? '',
+            businessName: customer.businessName ?? undefined,
+            companyName: customer.companyName ?? undefined,
+            contactPerson: customer.contactPerson ?? undefined,
             totalOrders: customer.orderCount,
             paidOrders: customer.paidOrders,
             partialOrders: customer.partialOrders,
@@ -269,19 +462,27 @@ function ReportsPageContent() {
         setCustomerPayments(paymentStatus);
       } else {
         console.error('Failed to fetch report data:', reportsData.error);
+        setReportData(null);
+        setCustomerPayments([]);
       }
     } catch (error) {
       console.error('Error loading report data:', error);
+      setReportData(null);
+      setCustomerPayments([]);
     } finally {
       setIsLoading(false);
     }
-  }, [reportPeriod, selectedDate, customStartDate, customEndDate, user?.uid]);
+  }, [canLoadReports, customEndDate, customStartDate, effectiveSellerId, reportPeriod, selectedDate]);
 
   useEffect(() => {
     loadReportData();
   }, [loadReportData]);
 
   const loadCustomerInvoiceDetails = async (customer: CustomerPaymentStatus) => {
+    if (!effectiveSellerId) {
+      return;
+    }
+
     setLoadingCustomerDetails(true);
     
     try {
@@ -292,29 +493,64 @@ function ReportsPageContent() {
       console.log('Customer API Response:', customerData);
       console.log('Customer Response Status:', customerResponse.status);
       
-      // Create enhanced customer object with address and phone
+      const apiCustomer = (customerData.success && customerData.data) ? customerData.data : {};
+
+      // Create enhanced customer object with consistent naming and contact info
       const enhancedCustomer = {
         ...customer,
-        address: (customerData.success && customerData.data) ? (customerData.data.address || '') : '',
-        phone: (customerData.success && customerData.data) ? (customerData.data.phone || '') : ''
+        name: resolveCustomerDisplayName({
+          name: customer.name,
+          businessName: customer.businessName ?? apiCustomer.businessName,
+          companyName: apiCustomer.companyName,
+          contactPerson: customer.contactPerson ?? apiCustomer.contactPerson,
+          email: customer.email,
+        }),
+        businessName: customer.businessName ?? apiCustomer.businessName ?? undefined,
+        companyName: customer.companyName ?? apiCustomer.companyName ?? undefined,
+        contactPerson: customer.contactPerson ?? apiCustomer.contactPerson ?? undefined,
+        address: apiCustomer.address || '',
+        phone: apiCustomer.phone || '',
       };
       
       console.log('Enhanced Customer:', enhancedCustomer);
       
       setSelectedCustomer(enhancedCustomer);
       
-      // Fetch all orders for this customer
-      const ordersResponse = await fetch(`/api/orders?customerId=${customer.id}&sellerId=${user?.uid}`);
+      // Build query parameters with time period filter
+      let ordersQuery = `customerId=${customer.id}&sellerId=${encodeURIComponent(effectiveSellerId)}&period=${reportPeriod}`;
+      
+      if (reportPeriod === 'custom') {
+        if (customStartDate && customEndDate) {
+          ordersQuery += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+        }
+      } else {
+        ordersQuery += `&date=${selectedDate}`;
+      }
+      
+      // Fetch orders for this customer with time period filter
+      const ordersResponse = await fetch(`/api/orders?${ordersQuery}`);
       const ordersData = await ordersResponse.json();
       
-      // Fetch all transactions (including credit notes) for this customer
-      const transactionsResponse = await fetch(`/api/transactions?customerId=${customer.id}`);
+      // Fetch transactions (including credit notes) for this customer with time period filter
+      let transactionsQuery = `customerId=${customer.id}&period=${reportPeriod}`;
+      if (effectiveSellerId) {
+        transactionsQuery += `&sellerId=${encodeURIComponent(effectiveSellerId)}`;
+      }
+      
+      if (reportPeriod === 'custom') {
+        if (customStartDate && customEndDate) {
+          transactionsQuery += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+        }
+      } else {
+        transactionsQuery += `&date=${selectedDate}`;
+      }
+      
+      const transactionsResponse = await fetch(`/api/transactions?${transactionsQuery}`);
       const transactionsData = await transactionsResponse.json();
       
       if (ordersData.success && ordersData.data) {
         // Transform orders into invoice details
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const invoices: CustomerInvoiceDetail[] = ordersData.data.map((order: any) => {
+        const invoices: CustomerInvoiceDetail[] = (ordersData.data as OrderSummary[]).map((order) => {
           const invoiceDate = new Date(order.createdAt);
           const dueDate = new Date(invoiceDate);
           dueDate.setDate(dueDate.getDate() + 30);
@@ -356,12 +592,10 @@ function ReportsPageContent() {
       
       // Process credit notes from transactions
       if (transactionsData.transactions) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const creditNotes: CreditNoteDetail[] = transactionsData.transactions
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((txn: any) => txn.type === 'credit_note')
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((txn: any) => {
+        const typedTransactions = transactionsData.transactions as TransactionSummary[];
+        const creditNotes: CreditNoteDetail[] = typedTransactions
+          .filter((txn) => txn.type === 'credit_note')
+          .map((txn) => {
             const generateCreditNoteNumber = (txnId: string, createdAt: string) => {
               const date = new Date(createdAt);
               const year = date.getFullYear();
@@ -629,6 +863,70 @@ function ReportsPageContent() {
     }
   };
 
+  const collectionRate = reportData && reportData.totalRevenue > 0
+    ? (reportData.totalPaidAmount / reportData.totalRevenue) * 100
+    : 0;
+
+  const outstandingShare = reportData && reportData.totalRevenue > 0
+    ? (reportData.totalOutstanding / reportData.totalRevenue) * 100
+    : 0;
+
+  const topProductName = reportData?.topProducts[0]?.name ?? '—';
+  const topCustomer = reportData?.topCustomers[0];
+  const topCustomerName = topCustomer ? resolveCustomerDisplayName(topCustomer) : 'No orders yet';
+  const reportPeriodLabel = reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1);
+  const shouldSelectSeller = isAdmin && !effectiveSellerId && !isSellerLoading;
+  const disableReportExports = shouldSelectSeller || !reportData || isSellerLoading;
+  const filtersGridLayout = isAdmin ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-2 xl:grid-cols-3';
+  const periodOptions: Array<{ value: 'daily' | 'weekly' | 'monthly' | 'annually' | 'custom'; label: string }> = [
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'monthly', label: 'Monthly' },
+    { value: 'annually', label: 'Annually' },
+    { value: 'custom', label: 'Custom' },
+  ];
+
+  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
+    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={onMenuClick}
+          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          aria-label="Open sidebar"
+        >
+          <FiMenu className="w-6 h-6" />
+        </button>
+        <div className="text-gray-900 font-semibold">Admin Reports</div>
+        <div className="w-6" />
+      </div>
+    </header>
+  );
+
+  const highlightItems = reportData ? [
+    {
+      label: 'Collection rate',
+      value: formatPercent(collectionRate),
+      note: `${formatCurrency(reportData.totalPaidAmount)} collected so far`,
+    },
+    {
+      label: 'Outstanding balance',
+      value: reportData.totalOutstanding > 0 ? formatCurrency(reportData.totalOutstanding) : 'Fully paid',
+      note: outstandingShare > 0 ? `${formatPercent(outstandingShare)} of total revenue` : 'No outstanding balance',
+    },
+    {
+      label: 'Top customer',
+      value: topCustomer ? topCustomerName : 'No orders yet',
+      note: topCustomer ? `${formatCurrency(topCustomer.totalSpent)} across ${topCustomer.orderCount} orders` : '—',
+    },
+    {
+      label: 'Best-selling product',
+      value: topProductName,
+      note: reportData.topProducts[0]
+        ? `${reportData.topProducts[0].quantity} units sold`
+        : 'No sales in this period',
+    },
+  ] : [];
+
   const exportCustomerInvoicesCsv = () => {
     if (!selectedCustomer) {
       return;
@@ -643,10 +941,12 @@ function ReportsPageContent() {
       setIsCustomerCsvGenerating(true);
       const rows: Array<Array<string | number | null>> = [];
       const now = new Date();
+      const periodLabel = reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1);
 
       rows.push([
         `${selectedCustomer.name} (${selectedCustomer.email}) Invoice History`,
       ]);
+      rows.push(['Period', `${periodLabel} - ${getDateRangeText()}`]);
       rows.push(['Generated At', format(now, 'yyyy-MM-dd HH:mm')]);
       rows.push(['']);
 
@@ -768,6 +1068,10 @@ function ReportsPageContent() {
           invoices: customerInvoices,
           creditNotes: customerCreditNotes,
           reportDate: new Date().toISOString(),
+          reportPeriod,
+          selectedDate,
+          customStartDate: reportPeriod === 'custom' ? customStartDate : undefined,
+          customEndDate: reportPeriod === 'custom' ? customEndDate : undefined,
         }),
       });
 
@@ -824,30 +1128,24 @@ function ReportsPageContent() {
               </div>
             </div>
 
-            {/* Summary Cards Skeleton */}
-            <SkeletonComponents.SkeletonDashboardCards count={4} />
+            {/* Summary Skeleton */}
+            <SkeletonComponents.SkeletonCard />
 
-            {/* Charts Skeleton */}
+            {/* Overview Skeleton */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-                <SkeletonComponents.Skeleton height="h-64" width="w-full" />
-              </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-                <SkeletonComponents.Skeleton height="h-64" width="w-full" />
-              </div>
+              <SkeletonComponents.SkeletonCard />
+              <SkeletonComponents.SkeletonCard />
             </div>
 
             {/* Top Products and Customers Skeleton */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
                 <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-                <SkeletonComponents.SkeletonText lines={5} />
+                <SkeletonComponents.SkeletonText lines={4} />
               </div>
               <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
                 <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-                <SkeletonComponents.SkeletonText lines={5} />
+                <SkeletonComponents.SkeletonText lines={4} />
               </div>
             </div>
 
@@ -864,243 +1162,362 @@ function ReportsPageContent() {
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* Sidebar - Fixed positioning */}
       <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-        <SellerSidebar />
+        {isAdmin ? <AdminSidebar /> : <SellerSidebar />}
       </div>
 
       {/* Mobile Header */}
-      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      {isAdmin ? (
+        <AdminMobileHeader onMenuClick={() => setSidebarOpen(true)} />
+      ) : (
+        <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+      )}
 
       {/* Mobile Sidebar Drawer */}
-      <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {isAdmin ? (
+        <AdminSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      ) : (
+        <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      )}
 
       {/* Main Content */}
       <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
         <div className="w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6">
           {/* Header */}
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Financial Reports</h1>
-              <p className="text-gray-600 mt-1">Comprehensive business analytics and financial insights</p>
-              <p className="text-sm text-gray-500 mt-1 font-medium">
-                {reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1)} Report: {getDateRangeText()}
-                {reportPeriod === 'weekly' && (
-                  <span className="block text-xs text-gray-400 mt-1">
-                    * Weekly periods run from Monday to Sunday
-                  </span>
-                )}
-              </p>
-            </div>
-            
-            <div className="flex flex-col lg:flex-row lg:items-end gap-4 w-full lg:w-auto">
-              {/* Period Selector */}
-              <div className="flex flex-wrap bg-white border border-gray-200 rounded-lg p-1 gap-1 shadow-sm">
-                {(['daily', 'weekly', 'monthly', 'annually', 'custom'] as const).map((period) => (
+          <div className="space-y-6">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 lg:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Insights</p>
+                  <h1 className="text-3xl font-bold text-gray-900">Financial Reports</h1>
+                  <p className="text-gray-600 mt-1">Comprehensive business analytics and financial insights</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500 font-medium">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-blue-700 text-xs font-semibold">
+                      {reportPeriodLabel} View
+                    </span>
+                    <span>Period: {getDateRangeText()}</span>
+                  </div>
+                  {reportPeriod === 'weekly' && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Weekly periods run from Monday to Sunday
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto lg:justify-end">
                   <button
-                    key={period}
-                    onClick={() => setReportPeriod(period)}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                      reportPeriod === period
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
+                    onClick={exportReportCsv}
+                    disabled={disableReportExports || isReportCsvGenerating}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:border-gray-400 hover:text-gray-900 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {period.charAt(0).toUpperCase() + period.slice(1)}
+                    {isReportCsvGenerating ? (
+                      <>
+                        <FiLoader className="w-5 h-5 animate-spin" />
+                        Preparing CSV...
+                      </>
+                    ) : (
+                      <>
+                        <FiDownload className="w-5 h-5" />
+                        Download CSV
+                      </>
+                    )}
                   </button>
-                ))}
+                  <button
+                    onClick={generatePDF}
+                    disabled={disableReportExports || isPdfGenerating}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                  >
+                    {isPdfGenerating ? (
+                      <>
+                        <FiLoader className="w-5 h-5 animate-spin" />
+                        Generating PDF...
+                      </>
+                    ) : (
+                      <>
+                        <FiFileText className="w-5 h-5" />
+                        Download PDF
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* Date Picker - Conditional rendering based on period */}
-              {reportPeriod === 'custom' ? (
-                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
-                  <FiCalendar className="w-5 h-5 text-gray-500 flex-shrink-0" />
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="date"
-                      value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="From"
-                    />
-                    <span className="text-gray-500 self-center">to</span>
-                    <input
-                      type="date"
-                      value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="To"
-                    />
+              <div className={`mt-6 grid grid-cols-1 gap-4 ${filtersGridLayout}`}>
+                {isAdmin && (
+                  <div className="bg-slate-50/70 border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+                    <label className="text-xs font-semibold text-gray-500 flex items-center gap-2">
+                      <FiUsers className="w-4 h-4 text-blue-500" />
+                      Seller
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      Switch between seller accounts to compare performance.
+                    </p>
+                    <select
+                      value={selectedSellerId}
+                      onChange={(event) => setSelectedSellerId(event.target.value)}
+                      disabled={isSellerLoading || sellerOptions.length === 0}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-sm"
+                    >
+                      <option value="">
+                        {isSellerLoading ? 'Loading sellers…' : 'Select seller'}
+                      </option>
+                      {sellerOptions.map((seller) => (
+                        <option key={seller.id} value={seller.id}>
+                          {seller.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className={`bg-slate-50/70 border border-gray-200 rounded-xl p-4 flex flex-col gap-3 ${isAdmin ? 'md:col-span-2 xl:col-span-2' : 'md:col-span-2 xl:col-span-2'}`}>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span className="font-semibold text-gray-600">Reporting cadence</span>
+                    <span>Pick the comparison window</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {periodOptions.map((period) => (
+                      <button
+                        key={period.value}
+                        onClick={() => setReportPeriod(period.value)}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 border ${
+                          reportPeriod === period.value
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-white text-gray-600 border-transparent hover:border-gray-200'
+                        }`}
+                        aria-pressed={reportPeriod === period.value}
+                      >
+                        {period.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
-                  <FiCalendar className="w-5 h-5 text-gray-500" />
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    title={
-                      reportPeriod === 'weekly' 
-                        ? 'Select any date within the week you want to view' 
-                        : reportPeriod === 'annually'
-                        ? 'Select any date in the year to view'
-                        : `Select ${reportPeriod === 'daily' ? 'the day' : 'any date in the month'} to view`
-                    }
-                  />
-                </div>
-              )}
 
-              {/* Export Actions */}
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={exportReportCsv}
-                  disabled={isReportCsvGenerating}
-                  className="flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:border-gray-400 hover:text-gray-900 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isReportCsvGenerating ? (
-                    <>
-                      <FiLoader className="w-5 h-5 animate-spin" />
-                      Preparing CSV...
-                    </>
+                <div className="bg-slate-50/70 border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span className="font-semibold text-gray-600">Date focus</span>
+                    <span>{reportPeriod === 'custom' ? 'Select a range' : 'Anchor date'}</span>
+                  </div>
+                  {reportPeriod === 'custom' ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="text-xs text-gray-500">
+                        <span className="mb-1 block font-medium text-gray-600">From</span>
+                        <input
+                          type="date"
+                          value={customStartDate}
+                          onChange={(e) => setCustomStartDate(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Start date"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-500">
+                        <span className="mb-1 block font-medium text-gray-600">To</span>
+                        <input
+                          type="date"
+                          value={customEndDate}
+                          onChange={(e) => setCustomEndDate(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="End date"
+                        />
+                      </label>
+                    </div>
                   ) : (
-                    <>
-                      <FiDownload className="w-5 h-5" />
-                      Download CSV
-                    </>
+                    <label className="text-xs text-gray-500">
+                      <span className="mb-1 block font-medium text-gray-600">Choose date</span>
+                      <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2">
+                        <FiCalendar className="w-5 h-5 text-gray-500" />
+                        <input
+                          type="date"
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
+                          className="flex-1 text-sm focus:outline-none"
+                          title={
+                            reportPeriod === 'weekly'
+                              ? 'Select any date within the week you want to view'
+                              : reportPeriod === 'annually'
+                              ? 'Select any date in the year to view'
+                              : `Select ${reportPeriod === 'daily' ? 'the day' : 'any date in the month'} to view`
+                          }
+                        />
+                      </div>
+                    </label>
                   )}
-                </button>
-                <button
-                  onClick={generatePDF}
-                  disabled={isPdfGenerating}
-                  className="flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
-                >
-                  {isPdfGenerating ? (
-                    <>
-                      <FiLoader className="w-5 h-5 animate-spin" />
-                      Generating PDF...
-                    </>
-                  ) : (
-                    <>
-                      <FiFileText className="w-5 h-5" />
-                      Download PDF
-                    </>
-                  )}
-                </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Summary Cards */}
-          {reportData && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatCurrency(reportData.totalRevenue)}</p>
-                    <p className="text-xs text-green-600">Collected: {formatCurrency(reportData.totalPaidAmount)}</p>
-                  </div>
-                  <div className="bg-green-100 p-3 rounded-lg">
-                    <FiDollarSign className="w-6 h-6 text-green-600" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Outstanding Amount</p>
-                    <p className="text-2xl font-bold text-red-600">{formatCurrency(reportData.totalOutstanding)}</p>
-                    <p className="text-xs text-gray-500">{reportData.partialOrders + reportData.unpaidOrders} orders</p>
-                  </div>
-                  <div className="bg-red-100 p-3 rounded-lg">
-                    <FiAlertCircle className="w-6 h-6 text-red-600" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Total Orders</p>
-                    <p className="text-2xl font-bold text-gray-900">{reportData.totalOrders}</p>
-                    <p className="text-xs text-gray-500">
-                      {reportData.paidOrders} paid, {reportData.partialOrders} partial, {reportData.unpaidOrders} pending
-                    </p>
-                  </div>
-                  <div className="bg-blue-100 p-3 rounded-lg">
-                    <FiFileText className="w-6 h-6 text-blue-600" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Active Customers</p>
-                    <p className="text-2xl font-bold text-gray-900">{reportData.activeCustomers}</p>
-                    <p className="text-xs text-gray-500">of {reportData.totalCustomers} total</p>
-                  </div>
-                  <div className="bg-purple-100 p-3 rounded-lg">
-                    <FiUsers className="w-6 h-6 text-purple-600" />
-                  </div>
-                </div>
-              </div>
+          {shouldSelectSeller && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm">
+              Select a seller to load financial reports.
             </div>
+          )}
+
+          {!shouldSelectSeller && (
+            <>
+          {/* Summary Overview */}
+          {reportData && (
+            <>
+              <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-5 mb-6">
+                <h2 className="text-lg font-semibold text-gray-900">Report Highlights</h2>
+                <p className="text-sm text-gray-500 mt-1">Key takeaways for this {reportPeriodLabel.toLowerCase()} period</p>
+                <dl className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {highlightItems.map((item) => (
+                    <div key={item.label} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{item.label}</dt>
+                      <dd className="mt-1 text-lg font-semibold text-gray-900">{item.value}</dd>
+                      <p className="mt-1 text-xs text-gray-500 leading-relaxed">{item.note}</p>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Revenue Overview</h3>
+                      <p className="text-sm text-gray-500 mt-1">Snapshot of income, collections, and exposure</p>
+                    </div>
+                    <div className="bg-green-100 p-3 rounded-lg">
+                      <FiDollarSign className="w-6 h-6 text-green-600" />
+                    </div>
+                  </div>
+                  <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Total Revenue</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">
+                        {formatCurrency(reportData.totalRevenue)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatCurrency(reportData.productRevenue)} products · {formatCurrency(reportData.deliveryRevenue)} delivery
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Collected</p>
+                      <p className="text-xl font-bold text-green-600 mt-1">
+                        {formatCurrency(reportData.totalPaidAmount)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{formatPercent(collectionRate)} of total revenue</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Outstanding</p>
+                      <p className="text-xl font-bold text-red-600 mt-1">
+                        {formatCurrency(reportData.totalOutstanding)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {reportData.partialOrders + reportData.unpaidOrders} orders pending</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Average Order Value</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">
+                        {formatCurrency(reportData.averageOrderValue)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Across {reportData.totalOrders} orders</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Customers & Orders</h3>
+                      <p className="text-sm text-gray-500 mt-1">Customer activity and order mix</p>
+                    </div>
+                    <div className="bg-blue-100 p-3 rounded-lg">
+                      <FiUsers className="w-6 h-6 text-blue-600" />
+                    </div>
+                  </div>
+                  <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Active Customers</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">
+                        {reportData.activeCustomers}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">of {reportData.totalCustomers} customers</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Order Status Mix</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">
+                        {reportData.totalOrders}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {reportData.paidOrders} paid · {reportData.partialOrders} partial · {reportData.unpaidOrders} pending
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Primary Payment State</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">
+                        {reportData.paymentStatus[0]?.name ?? 'No data'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {reportData.paymentStatus[0]
+                          ? `${formatCurrency(reportData.paymentStatus[0].value)} · ${formatPercent(reportData.paymentStatus[0].percentage)}`
+                          : 'No payments recorded'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase">Last Order Date</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">
+                        {reportData.topCustomers[0]?.lastOrderDate
+                          ? format(new Date(reportData.topCustomers[0].lastOrderDate), 'MMM dd, yyyy')
+                          : 'No orders'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Top customer activity</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
           {/* Top Products and Customers */}
           {reportData && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               {/* Top Products */}
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Products</h3>
-                <div className="space-y-4">
-                  {reportData.topProducts.slice(0, 5).map((product, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
-                      <div className="flex-1">
+              <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Top Products</h3>
+                <p className="text-xs text-gray-500 mb-3">Top selling items for the selected period</p>
+                <div className="space-y-3">
+                  {reportData.topProducts.slice(0, 3).map((product, index) => (
+                    <div key={index} className="flex items-center justify-between rounded-lg border border-gray-100 px-4 py-3 bg-gray-50">
+                      <div>
                         <p className="font-medium text-gray-900">{product.name}</p>
-                        <p className="text-sm text-gray-500">{product.quantity} units sold</p>
+                        <p className="text-xs text-gray-500">{product.quantity} units · {formatCurrency(product.revenue)}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">{formatCurrency(product.revenue)}</p>
-                      </div>
+                      <span className="text-sm font-semibold text-gray-400">#{index + 1}</span>
                     </div>
                   ))}
+                  {reportData.topProducts.length > 3 && (
+                    <p className="text-xs text-gray-400 text-right">{reportData.topProducts.length - 3} more product{reportData.topProducts.length - 3 === 1 ? '' : 's'} in report</p>
+                  )}
                 </div>
               </div>
 
               {/* Top Customers */}
-              <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Customers</h3>
-                <div className="space-y-4">
-                  {reportData.topCustomers.slice(0, 5).map((customer, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
-                      <div className="flex-1">
+              <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Top Customers</h3>
+                <p className="text-xs text-gray-500 mb-3">Customers driving the majority of revenue</p>
+                <div className="space-y-3">
+                  {reportData.topCustomers.slice(0, 3).map((customer, index) => (
+                    <div key={index} className="flex items-center justify-between rounded-lg border border-gray-100 px-4 py-3 bg-gray-50">
+                      <div>
                         <p className="font-medium text-gray-900">{customer.name}</p>
-                        <p className="text-sm text-gray-500">{customer.orderCount} orders</p>
+                        <p className="text-xs text-gray-500">{customer.orderCount} orders · {formatCurrency(customer.totalSpent)}</p>
                         {customer.lastOrderDate && (
-                          <p className="text-xs text-gray-400">Last order: {format(new Date(customer.lastOrderDate), 'MMM dd, yyyy')}</p>
+                          <p className="text-xs text-gray-400 mt-1">Last order {format(new Date(customer.lastOrderDate), 'MMM dd, yyyy')}</p>
                         )}
-                        <div className="flex gap-4 text-xs text-gray-500 mt-1">
-                          <span>Paid: {formatCurrency(customer.totalPaid)}</span>
-                          {customer.totalOutstanding > 0 && (
-                            <span className="text-red-600">Due: {formatCurrency(customer.totalOutstanding)}</span>
-                          )}
-                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">{formatCurrency(customer.totalSpent)}</p>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          customer.totalOutstanding === 0 ? 'bg-green-100 text-green-700' : 
-                          customer.totalOutstanding <= customer.totalSpent * 0.3 ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
-                          {customer.status}
-                        </span>
-                      </div>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                        customer.totalOutstanding === 0 ? 'bg-green-100 text-green-700' : 
+                        customer.totalOutstanding <= customer.totalSpent * 0.3 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {customer.status}
+                      </span>
                     </div>
                   ))}
+                  {reportData.topCustomers.length > 3 && (
+                    <p className="text-xs text-gray-400 text-right">{reportData.topCustomers.length - 3} more customer{reportData.topCustomers.length - 3 === 1 ? '' : 's'} in report</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1132,8 +1549,12 @@ function ReportsPageContent() {
                       <tr key={customer.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4">
                           <div>
-                            <p className="font-medium text-gray-900">{customer.name}</p>
-                            <p className="text-gray-500 text-xs">{customer.email}</p>
+                            <p className="font-medium text-gray-900">
+                              {customer.businessName || customer.contactPerson || `Customer ${customer.id.slice(-4)}`}
+                            </p>
+                            {customer.email && (
+                              <p className="text-gray-500 text-xs">{customer.email}</p>
+                            )}
                           </div>
                         </td>
                         <td className="py-3 px-4">
@@ -1197,6 +1618,9 @@ function ReportsPageContent() {
                   <div>
                     <h2 className="text-2xl font-bold mb-1">{selectedCustomer.name}</h2>
                     <p className="text-blue-100 text-sm">{selectedCustomer.email}</p>
+                    <p className="text-blue-200 text-xs mt-2">
+                      <strong>Period:</strong> {reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1)} ({getDateRangeText()})
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
@@ -1478,6 +1902,8 @@ function ReportsPageContent() {
               )}
             </div>
           )}
+            </>
+          )}
         </div>
       </main>
     </div>
@@ -1509,19 +1935,13 @@ const ReportsLoadingSkeleton = () => (
           </div>
         </div>
 
-        {/* Summary Cards Skeleton */}
-        <SkeletonComponents.SkeletonDashboardCards count={4} />
+        {/* Summary Skeleton */}
+        <SkeletonComponents.SkeletonCard />
 
-        {/* Charts Skeleton */}
+        {/* Overview Cards Skeleton */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-            <SkeletonComponents.Skeleton height="h-64" width="w-full" />
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <SkeletonComponents.Skeleton height="h-6" width="w-32" className="mb-4" />
-            <SkeletonComponents.Skeleton height="h-64" width="w-full" />
-          </div>
+          <SkeletonComponents.SkeletonCard />
+          <SkeletonComponents.SkeletonCard />
         </div>
 
         {/* Top sections Skeleton */}
@@ -1540,8 +1960,8 @@ const ReportsLoadingSkeleton = () => (
 
 export default function ReportsPage() {
   return (
-    <SellerGuard loadingSkeleton={<ReportsLoadingSkeleton />}>
+    <AdminGuard loadingSkeleton={<ReportsLoadingSkeleton />}>
       <ReportsPageContent />
-    </SellerGuard>
+    </AdminGuard>
   );
 }

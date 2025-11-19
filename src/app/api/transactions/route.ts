@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
     // Get query parameters for filtering
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
+    const sellerIdParam = searchParams.get('sellerId');
     const paymentMethod = searchParams.get('paymentMethod');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
@@ -72,6 +73,8 @@ export async function GET(request: NextRequest) {
     // Filter by seller first (most important filter for sellers)
     if (userRole === 'seller') {
       query = query.where('sellerId', '==', userId);
+    } else if (userRole === 'admin' && sellerIdParam) {
+      query = query.where('sellerId', '==', sellerIdParam);
     }
 
     // Apply additional filters only if base filter exists

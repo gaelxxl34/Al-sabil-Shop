@@ -4,17 +4,20 @@ import React, { useState, useEffect, useCallback } from 'react';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerHeader from '@/components/SellerHeader';
-import { FiPlus, FiDollarSign, FiFilter, FiX, FiEye, FiUser, FiCheckCircle, FiPackage, FiTrash2 } from 'react-icons/fi';
+import AdminSidebar from '@/components/AdminSidebar';
+import AdminSidebarDrawer from '@/components/AdminSidebarDrawer';
+import { FiDollarSign, FiFilter, FiX, FiUser, FiUsers, FiCheckCircle, FiPackage, FiTrash2, FiMenu } from 'react-icons/fi';
 import { Transaction, CreateTransactionInput } from '@/types/transaction';
 import { Customer } from '@/types/customer';
 import { Order } from '@/types/cart';
-import SellerGuard from '@/components/SellerGuard';
+import AdminGuard from '@/components/AdminGuard';
+import { useAuth } from '@/components/AuthProvider';
 
 export default function TransactionsPage() {
   return (
-    <SellerGuard>
+    <AdminGuard>
       <TransactionsContent />
-    </SellerGuard>
+    </AdminGuard>
   );
 }
 
@@ -46,7 +49,21 @@ interface BulkPaymentData {
   }[];
 }
 
+interface SellerOption {
+  id: string;
+  name: string;
+  email: string;
+  companyName?: string;
+}
+
 function TransactionsContent() {
+  const { userData, loading: authLoading } = useAuth();
+  const isAdmin = userData?.role === 'admin';
+  const [selectedSellerId, setSelectedSellerId] = useState('');
+  const [sellerOptions, setSellerOptions] = useState<SellerOption[]>([]);
+  const [isSellerLoading, setIsSellerLoading] = useState(false);
+  const [hasInitializedSeller, setHasInitializedSeller] = useState(false);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -61,6 +78,9 @@ function TransactionsContent() {
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+
+  const effectiveSellerId = isAdmin ? selectedSellerId : userData?.uid || '';
+  const canLoadData = !isAdmin || Boolean(effectiveSellerId);
 
   // Filters
   const [selectedCustomer, setSelectedCustomer] = useState('');
@@ -91,79 +111,114 @@ function TransactionsContent() {
   });
 
   useEffect(() => {
-    fetchInitialData();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (authLoading) {
+      return;
+    }
+
+    if (isAdmin) {
+      return;
+    }
+
+    if (!selectedSellerId && userData?.uid) {
+      setSelectedSellerId(userData.uid);
+    }
+  }, [authLoading, isAdmin, selectedSellerId, userData?.uid]);
 
   useEffect(() => {
-    if (activeTab === 'transactions') {
-      fetchTransactions();
+    if (authLoading || !isAdmin) {
+      return;
     }
-  }, [selectedCustomer, selectedPaymentMethod, startDate, endDate, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (customers.length > 0 && orders.length > 0) {
-      calculateCustomerPaymentInfo();
+    if (sellerOptions.length > 0 && hasInitializedSeller) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, orders, transactions]);
 
-  const fetchInitialData = useCallback(async () => {
+    const loadSellers = async () => {
+      try {
+        setIsSellerLoading(true);
+        const response = await fetch('/api/users');
+        if (!response.ok) {
+          console.error('Failed to fetch sellers:', response.status);
+          return;
+        }
+
+        const data = await response.json();
+        const sellers = Array.isArray(data.data)
+          ? data.data.filter((user: { role?: string }) => user.role === 'seller')
+          : [];
+
+        const formatted: SellerOption[] = sellers.map((seller: { id: string; email?: string; displayName?: string; companyName?: string }) => ({
+          id: seller.id,
+          email: seller.email || '',
+          name: seller.displayName || seller.companyName || seller.email || 'Seller',
+          companyName: seller.companyName,
+        })).sort((a: SellerOption, b: SellerOption) => a.name.localeCompare(b.name));
+
+        setSellerOptions(formatted);
+
+        if (!hasInitializedSeller && formatted.length > 0) {
+          setSelectedSellerId((current) => current || formatted[0].id);
+          setHasInitializedSeller(true);
+        }
+      } catch (error) {
+        console.error('Error fetching sellers:', error);
+      } finally {
+        setIsSellerLoading(false);
+      }
+    };
+
+    loadSellers();
+  }, [authLoading, hasInitializedSeller, isAdmin, sellerOptions.length]);
+
+  const fetchCustomers = useCallback(async () => {
+    if (!canLoadData) {
+      return [];
+    }
+
     try {
-      setIsLoading(true);
-      
-      await Promise.allSettled([
-        fetchCustomers(),
-        fetchOrders(),
-        fetchTransactions()
-      ]);
-
-      // Calculate customer payment info after all data is loaded
-      setTimeout(() => {
-        calculateCustomerPaymentInfo();
-      }, 100);
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchCustomers = async () => {
-    try {
-      const response = await fetch('/api/customers');
+      const query = effectiveSellerId ? `?sellerId=${encodeURIComponent(effectiveSellerId)}` : '';
+      const response = await fetch(`/api/customers${query}`);
       if (response.ok) {
         const data = await response.json();
-        // API returns { success: true, data: [...], total: number }
         const customersList = data.data || data.customers || [];
         setCustomers(customersList);
         return customersList;
-      } else {
-        console.error('Failed to fetch customers:', response.status);
-        return [];
       }
+
+      console.error('Failed to fetch customers:', response.status);
+      return [];
     } catch (error) {
       console.error('Error fetching customers:', error);
       return [];
     }
-  };
+  }, [canLoadData, effectiveSellerId]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
+    if (!canLoadData) {
+      return [];
+    }
+
     try {
-      const response = await fetch('/api/orders');
+      const params = new URLSearchParams();
+      if (effectiveSellerId) {
+        params.append('sellerId', effectiveSellerId);
+      }
+      const queryString = params.toString();
+      const response = await fetch(`/api/orders${queryString ? `?${queryString}` : ''}`);
       if (response.ok) {
         const data = await response.json();
         const ordersData = data.success && data.data ? data.data : [];
         setOrders(ordersData);
         return ordersData;
-      } else {
-        console.error('Failed to fetch orders:', response.status);
-        return [];
       }
+
+      console.error('Failed to fetch orders:', response.status);
+      return [];
     } catch (error) {
       console.error('Error fetching orders:', error);
       return [];
     }
-  };
+  }, [canLoadData, effectiveSellerId]);
 
   const calculateCustomerPaymentInfo = useCallback(() => {
     if (customers.length === 0 || orders.length === 0) {
@@ -205,36 +260,85 @@ function TransactionsContent() {
   }, [customers, orders, transactions]);
 
   useEffect(() => {
+    if (!canLoadData) {
+      setCustomerPaymentInfo([]);
+      return;
+    }
+
     calculateCustomerPaymentInfo();
-  }, [calculateCustomerPaymentInfo]);
+  }, [canLoadData, calculateCustomerPaymentInfo]);
 
   const fetchTransactions = useCallback(async () => {
+    if (!canLoadData) {
+      setTransactions([]);
+      return [];
+    }
+
     try {
       const params = new URLSearchParams();
       if (selectedCustomer) params.append('customerId', selectedCustomer);
       if (selectedPaymentMethod) params.append('paymentMethod', selectedPaymentMethod);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
+      if (effectiveSellerId) params.append('sellerId', effectiveSellerId);
 
-      const response = await fetch(`/api/transactions?${params.toString()}`);
+      const query = params.toString();
+      const response = await fetch(`/api/transactions${query ? `?${query}` : ''}`);
       if (response.ok) {
         const data = await response.json();
-        setTransactions(data.transactions || []);
-        return data.transactions || [];
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to fetch transactions:', errorData.error || 'Unknown error');
-        
-        if (response.status === 403) {
-          alert('Access denied. Please logout and login again to refresh your session.');
-        }
-        return [];
+        const list = data.transactions || [];
+        setTransactions(list);
+        return list;
       }
+
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Failed to fetch transactions:', errorData.error || 'Unknown error');
+
+      if (response.status === 403) {
+        alert('Access denied. Please logout and login again to refresh your session.');
+      }
+      return [];
     } catch (error) {
       console.error('Error fetching transactions:', error);
       return [];
     }
-  }, [selectedCustomer, selectedPaymentMethod, startDate, endDate]);
+  }, [canLoadData, effectiveSellerId, endDate, selectedCustomer, selectedPaymentMethod, startDate]);
+
+  const fetchInitialData = useCallback(async () => {
+    if (!canLoadData) {
+      setCustomers([]);
+      setOrders([]);
+      setTransactions([]);
+      setCustomerPaymentInfo([]);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      await Promise.allSettled([
+        fetchCustomers(),
+        fetchOrders(),
+        fetchTransactions(),
+      ]);
+
+    } catch (error) {
+      console.error('Error fetching initial data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [canLoadData, fetchCustomers, fetchOrders, fetchTransactions]);
+
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    if (activeTab === 'transactions') {
+      fetchTransactions();
+    }
+  }, [activeTab, fetchTransactions]);
 
   const openBulkPaymentModal = (customerInfo: CustomerPaymentInfo) => {
     setSelectedCustomerForPayment(customerInfo);
@@ -491,18 +595,42 @@ function TransactionsContent() {
   const totalOutstanding = customerPaymentInfo.reduce((sum, info) => sum + info.totalOutstanding, 0);
   const totalCustomersWithOutstanding = customerPaymentInfo.filter(info => info.totalOutstanding > 0).length;
 
+  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
+    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={onMenuClick}
+          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          aria-label="Open sidebar"
+        >
+          <FiMenu className="w-6 h-6" />
+        </button>
+        <div className="text-gray-900 font-semibold">Admin Transactions</div>
+        <div className="w-6" />
+      </div>
+    </header>
+  );
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-50">
       {/* Desktop Sidebar */}
       <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-        <SellerSidebar />
+        {isAdmin ? <AdminSidebar /> : <SellerSidebar />}
       </div>
 
       {/* Mobile Header */}
-      <SellerHeader onMenuClick={() => setIsSidebarOpen(true)} />
+      {isAdmin ? (
+        <AdminMobileHeader onMenuClick={() => setIsSidebarOpen(true)} />
+      ) : (
+        <SellerHeader onMenuClick={() => setIsSidebarOpen(true)} />
+      )}
 
       {/* Mobile Sidebar Drawer */}
-      <SellerSidebarDrawer open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isAdmin ? (
+        <AdminSidebarDrawer open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      ) : (
+        <SellerSidebarDrawer open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden md:ml-64">
@@ -513,6 +641,29 @@ function TransactionsContent() {
               <h1 className="text-2xl font-bold text-gray-900">Payment Management</h1>
               <p className="text-sm text-gray-600">Manage customer payments and outstanding balances</p>
             </div>
+            {isAdmin && (
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                  <FiUsers className="w-4 h-4 text-red-500" />
+                  Seller
+                </label>
+                <select
+                  value={selectedSellerId}
+                  onChange={(event) => setSelectedSellerId(event.target.value)}
+                  disabled={isSellerLoading || sellerOptions.length === 0}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white text-sm min-w-[220px]"
+                >
+                  <option value="">
+                    {isSellerLoading ? 'Loading sellers…' : 'Select seller'}
+                  </option>
+                  {sellerOptions.map((seller) => (
+                    <option key={seller.id} value={seller.id}>
+                      {seller.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </header>
 
@@ -523,11 +674,34 @@ function TransactionsContent() {
               <h1 className="text-xl font-bold text-gray-900">Payment Management</h1>
               <p className="text-xs text-gray-600">Customer payments & balances</p>
             </div>
+            {isAdmin && (
+              <select
+                value={selectedSellerId}
+                onChange={(event) => setSelectedSellerId(event.target.value)}
+                disabled={isSellerLoading || sellerOptions.length === 0}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white text-xs"
+              >
+                <option value="">
+                  {isSellerLoading ? 'Loading…' : 'Seller'}
+                </option>
+                {sellerOptions.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+          {isAdmin && !effectiveSellerId && (
+            <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm">
+              Select a seller to load payment and transaction data.
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="mb-6">
             <div className="border-b border-gray-200">

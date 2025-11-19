@@ -56,6 +56,31 @@ const getOrderFinancials = (order: { [key: string]: unknown }) => {
   };
 };
 
+const resolveCustomerDisplayName = (customer: { [key: string]: unknown }) => {
+  const extractString = (value: unknown) =>
+    typeof value === 'string' ? value.trim() : '';
+
+  const nameCandidates = [
+    extractString(customer.businessName),
+    extractString(customer.companyName),
+    extractString(customer.name),
+    extractString(customer.contactPerson),
+  ];
+
+  const displayName = nameCandidates.find((candidate) => candidate.length > 0);
+
+  if (displayName) {
+    return displayName;
+  }
+
+  const email = extractString(customer.email);
+  if (email) {
+    return email;
+  }
+
+  return 'Customer';
+};
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -156,10 +181,9 @@ export async function GET(request: NextRequest) {
       });
     });
 
-    // Fetch customers for this seller
-    const customersQuery = adminDb.collection('users')
-      .where('sellerId', '==', targetSellerId)
-      .where('role', '==', 'customer');
+    // Fetch customers for this seller (business metadata lives in `customers` collection)
+    const customersQuery = adminDb.collection('customers')
+      .where('sellerId', '==', targetSellerId);
 
     const customersSnapshot = await customersQuery.get();
     const customers: Array<{
@@ -410,10 +434,11 @@ function calculateTopCustomers(
     
     return {
       id: customer.id,
-      name: (customer.name as string) && (customer.name as string).trim() 
-        ? (customer.name as string).trim() 
-        : `Customer (${customer.email})`,
-      email: customer.email,
+      name: resolveCustomerDisplayName(customer),
+      businessName: typeof customer.businessName === 'string' ? customer.businessName : undefined,
+      contactPerson: typeof customer.contactPerson === 'string' ? customer.contactPerson : undefined,
+      companyName: typeof customer.companyName === 'string' ? customer.companyName : undefined,
+      email: typeof customer.email === 'string' ? customer.email : '',
       totalSpent,
       totalPaid,
       totalOutstanding,

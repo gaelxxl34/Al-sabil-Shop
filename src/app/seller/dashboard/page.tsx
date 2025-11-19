@@ -269,9 +269,6 @@ export default function SellerDashboard() {
 					<Link href="/seller/orders" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_PRIMARY}`}>
 						View All Orders
 					</Link>
-					<Link href="/seller/reports" className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all duration-200 text-center ${BUTTON_OUTLINE}`}>
-						📊 Financial Reports
-					</Link>
 				</section>
 
 				{/* Recent Orders Table */}

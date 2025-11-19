@@ -4,19 +4,43 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiSettings, FiLogOut } from "react-icons/fi";
-import { useState } from "react";
+import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiSettings, FiLogOut, FiDollarSign, FiBarChart } from "react-icons/fi";
+import { useState, type ReactElement } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 const SIDEBAR_BG = "bg-gray-900";
 const SIDEBAR_ACTIVE = "bg-elegant-red-600 text-white font-semibold shadow-lg";
 const BUTTON_PRIMARY = "bg-elegant-red-600 text-white hover:bg-elegant-red-700 shadow-lg";
 
-const navLinks = [
+type NavLink = {
+  href: string;
+  label: string;
+  icon: ReactElement;
+  aliases?: string[];
+};
+
+const navLinks: NavLink[] = [
   { href: "/admin/dashboard", label: "Dashboard", icon: <FiHome className="w-5 h-5" /> },
   { href: "/admin/users", label: "Users", icon: <FiUsers className="w-5 h-5" /> },
   { href: "/admin/products", label: "Products", icon: <FiShoppingBag className="w-5 h-5" /> },
-  { href: "/admin/orders", label: "Orders", icon: <FiBarChart2 className="w-5 h-5" /> },
+  {
+    href: "/admin/orders",
+    label: "Orders",
+    icon: <FiBarChart2 className="w-5 h-5" />,
+    aliases: ["/seller/orders"],
+  },
+  {
+    href: "/seller/transactions",
+    label: "Transactions",
+    icon: <FiDollarSign className="w-5 h-5" />,
+    aliases: ["/admin/transactions"],
+  },
+  {
+    href: "/seller/reports",
+    label: "Reports",
+    icon: <FiBarChart className="w-5 h-5" />,
+    aliases: ["/admin/reports"],
+  },
   { href: "/admin/settings", label: "Settings", icon: <FiSettings className="w-5 h-5" /> },
 ];
 
@@ -57,21 +81,26 @@ export default function AdminSidebar({ onClose }: { onClose?: () => void }) {
       </div>
       
       <nav className="flex flex-col gap-2 mt-6 px-4">
-        {navLinks.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className={`py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3 ${
-              pathname === link.href || pathname?.startsWith(link.href + "/")
-                ? SIDEBAR_ACTIVE
-                : "text-gray-300 hover:bg-gray-800 hover:text-white"
-            }`}
-            onClick={onClose}
-          >
-            {link.icon}
-            <span>{link.label}</span>
-          </Link>
-        ))}
+        {navLinks.map((link) => {
+          const pathsToMatch = [link.href, ...(link.aliases ?? [])];
+          const isActive = pathsToMatch.some((target) =>
+            pathname === target || pathname?.startsWith(`${target}/`)
+          );
+
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-3 ${
+                isActive ? SIDEBAR_ACTIVE : "text-gray-300 hover:bg-gray-800 hover:text-white"
+              }`}
+              onClick={onClose}
+            >
+              {link.icon}
+              <span>{link.label}</span>
+            </Link>
+          );
+        })}
       </nav>
       
       <div className="mt-auto px-4 pb-6">

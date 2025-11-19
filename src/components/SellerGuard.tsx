@@ -5,14 +5,18 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import LoadingScreen from '@/components/LoadingScreen';
 
+type SellerRole = 'seller' | 'admin';
+
 interface SellerGuardProps {
   children: ReactNode;
   loadingSkeleton?: ReactNode;
+  allowedRoles?: SellerRole[];
 }
 
-export default function SellerGuard({ children, loadingSkeleton }: SellerGuardProps) {
+export default function SellerGuard({ children, loadingSkeleton, allowedRoles = ['seller'] }: SellerGuardProps) {
   const { user, userData, loading } = useAuth();
   const router = useRouter();
+  const hasAccess = !!user && !!userData && allowedRoles.includes(userData.role as SellerRole);
 
   // Debug logging
   useEffect(() => {
@@ -27,7 +31,7 @@ export default function SellerGuard({ children, loadingSkeleton }: SellerGuardPr
   useEffect(() => {
     if (!loading) {
       console.log('🔒 SellerGuard - Checking authorization...');
-      if (!user || !userData || userData.role !== 'seller') {
+      if (!hasAccess) {
         console.log('❌ SellerGuard - Authorization failed, redirecting to login');
         console.log('  - User exists:', !!user);
         console.log('  - UserData exists:', !!userData);
@@ -37,13 +41,13 @@ export default function SellerGuard({ children, loadingSkeleton }: SellerGuardPr
         console.log('✅ SellerGuard - Authorization successful');
       }
     }
-  }, [user, userData, loading, router]);
+  }, [user, userData, loading, router, hasAccess]);
 
   if (loading) {
     return loadingSkeleton || <LoadingScreen message="Verifying seller access..." variant="minimal" />;
   }
 
-  if (!user || !userData || userData.role !== 'seller') {
+  if (!hasAccess) {
     return null; // Redirecting
   }
 

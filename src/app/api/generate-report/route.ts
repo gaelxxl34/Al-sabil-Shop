@@ -57,6 +57,19 @@ export async function POST(request: NextRequest) {
     const dateRangeText = getDateRangeText();
     const periodLabel = reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1);
 
+    const safeDivide = (numerator: number, denominator: number) => {
+      if (!denominator) {
+        return 0;
+      }
+      return (numerator / denominator) * 100;
+    };
+
+    const collectionRate = safeDivide(reportData.totalPaidAmount, reportData.totalRevenue);
+    const outstandingShare = safeDivide(reportData.totalOutstanding, reportData.totalRevenue);
+    const topProduct = reportData.topProducts[0];
+    const topCustomer = reportData.topCustomers[0];
+    const paymentLeader = reportData.paymentStatus[0];
+
     // Generate HTML content for the report
     const htmlContent = `
       <!DOCTYPE html>
@@ -118,36 +131,36 @@ export async function POST(request: NextRequest) {
             .summary-grid {
               display: grid;
               grid-template-columns: repeat(2, 1fr);
-              gap: 20px;
-              margin: 30px 0;
+              gap: 16px;
+              margin: 24px 0;
             }
             
             .summary-card {
               background: #f9fafb;
               border: 1px solid #e5e7eb;
-              border-radius: 8px;
-              padding: 20px;
+              border-radius: 6px;
+              padding: 16px;
               text-align: center;
             }
             
             .summary-card h3 {
-              font-size: 14px;
+              font-size: 12px;
               color: #6b7280;
-              margin-bottom: 8px;
+              margin-bottom: 6px;
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
             
             .summary-card .value {
-              font-size: 28px;
+              font-size: 22px;
               font-weight: bold;
               color: #111827;
             }
             
             .summary-card .subtext {
-              font-size: 12px;
+              font-size: 11px;
               color: #9ca3af;
-              margin-top: 4px;
+              margin-top: 3px;
             }
             
             .section {
@@ -155,9 +168,9 @@ export async function POST(request: NextRequest) {
             }
             
             .section-title {
-              font-size: 18px;
+              font-size: 16px;
               font-weight: bold;
-              margin-bottom: 20px;
+              margin-bottom: 16px;
               color: #111827;
               border-bottom: 1px solid #e5e7eb;
               padding-bottom: 8px;
@@ -263,6 +276,17 @@ export async function POST(request: NextRequest) {
               </div>
             </div>
 
+            <!-- Key Highlights -->
+            <div class="section">
+              <h2 class="section-title">Key Highlights</h2>
+              <ul style="margin-top: 10px; padding-left: 18px; color: #374151; font-size: 13px; line-height: 1.6;">
+                <li><strong>Collection rate:</strong> ${collectionRate.toFixed(0)}% (€${reportData.totalPaidAmount.toFixed(2)} collected)</li>
+                <li><strong>Outstanding balance:</strong> €${reportData.totalOutstanding.toFixed(2)}${outstandingShare ? ` (${outstandingShare.toFixed(0)}% of revenue)` : ''}</li>
+                <li><strong>Top customer:</strong> ${topCustomer ? `${topCustomer.name} · €${topCustomer.totalSpent.toFixed(2)} across ${topCustomer.orderCount} orders` : 'No orders in this period'}</li>
+                <li><strong>Best-selling product:</strong> ${topProduct ? `${topProduct.name} · ${topProduct.quantity} units` : 'No sales in this period'}</li>
+              </ul>
+            </div>
+
             <!-- Top Products -->
             <div class="section">
               <h2 class="section-title">Top Products</h2>
@@ -275,7 +299,7 @@ export async function POST(request: NextRequest) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${reportData.topProducts.slice(0, 10).map((product: TopProduct) => `
+                  ${reportData.topProducts.slice(0, 5).map((product: TopProduct) => `
                     <tr>
                       <td>${product.name}</td>
                       <td>${product.quantity}</td>
@@ -299,7 +323,7 @@ export async function POST(request: NextRequest) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${reportData.topCustomers.slice(0, 10).map((customer: TopCustomer) => {
+                  ${reportData.topCustomers.slice(0, 5).map((customer: TopCustomer) => {
                     const status = customer.status === 'Fully Paid' ? 'good' : 'warning';
                     return `
                       <tr>
@@ -336,6 +360,12 @@ export async function POST(request: NextRequest) {
                       <td>€${status.value.toFixed(2)}</td>
                     </tr>
                   `).join('')}
+                  ${paymentLeader ? `
+                    <tr style="background: #ecfeff; font-weight: 600;">
+                      <td>Leading category</td>
+                      <td>€${paymentLeader.value.toFixed(2)} (${paymentLeader.percentage.toFixed(1)}%)</td>
+                    </tr>
+                  ` : ''}
                   <tr style="font-weight: bold; background: #f3f4f6;">
                     <td>Total Revenue</td>
                     <td>€${reportData.totalRevenue.toFixed(2)}</td>

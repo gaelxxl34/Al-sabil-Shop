@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { FiHome, FiUsers, FiShoppingBag, FiClipboard, FiLogOut, FiBarChart, FiDollarSign } from "react-icons/fi";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 const SIDEBAR_BG = "bg-gray-900";
@@ -24,8 +24,18 @@ const navLinks = [
 export default function SellerSidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, userData } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const isAdmin = userData?.role === 'admin';
+
+  const filteredNavLinks = useMemo(() => {
+    return navLinks.filter((link) => {
+      if (!isAdmin && (link.href === '/seller/transactions' || link.href === '/seller/reports')) {
+        return false;
+      }
+      return true;
+    });
+  }, [isAdmin]);
 
   const handleLogout = async () => {
     try {
@@ -55,12 +65,12 @@ export default function SellerSidebar({ onClose }: { onClose?: () => void }) {
       {/* Seller Tag */}
       <div className="mt-4 px-6">
         <span className="inline-block bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded">
-          SELLER PANEL
+          {isAdmin ? 'ADMIN ACCESS' : 'SELLER PANEL'}
         </span>
       </div>
       
       <nav className="flex flex-col gap-2 mt-6 px-4">
-        {navLinks.map((link) => (
+        {filteredNavLinks.map((link) => (
           <Link
             key={link.href}
             href={link.href}

@@ -1,6 +1,7 @@
 // src/app/api/customers/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { Query, DocumentData } from 'firebase-admin/firestore';
 import { CreateCustomerData } from '@/types/customer';
 
 async function verifySellerAuth(request: NextRequest) {
@@ -45,6 +46,50 @@ async function verifySellerAuth(request: NextRequest) {
     };
   } catch (error) {
     console.error('❌ Seller Auth verification error:', error);
+    return null;
+  }
+}
+
+async function verifySellerOrAdmin(request: NextRequest) {
+  try {
+    const sessionCookie = request.cookies.get('session')?.value;
+
+    if (!sessionCookie) {
+      console.log('❌ Auth - No session cookie found');
+      return null;
+    }
+
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    console.log('🔍 Auth - Decoded user:', { uid: decoded.uid, email: decoded.email });
+
+    const userDoc = await adminDb.collection('users').doc(decoded.uid).get();
+    if (!userDoc.exists) {
+      console.log('❌ Auth - User document not found');
+      return null;
+    }
+
+    const userData = userDoc.data();
+    console.log('🔍 Auth - User role:', userData?.role);
+
+    if (userData?.isActive === false) {
+      console.log('❌ Auth - User account is inactive');
+      return null;
+    }
+
+    if (!['seller', 'admin'].includes(userData?.role)) {
+      console.log('❌ Auth - Unsupported role for customer access:', userData?.role);
+      return null;
+    }
+
+    console.log('✅ Auth - Seller/Admin verification successful');
+    return {
+      uid: decoded.uid,
+      email: decoded.email,
+      role: userData?.role,
+      ...userData,
+    };
+  } catch (error) {
+    console.error('❌ Auth verification error:', error);
     return null;
   }
 }
@@ -306,22 +351,33 @@ export async function POST(request: NextRequest) {
 // GET /api/customers - Get all customers for the current seller
 export async function GET(request: NextRequest) {
   try {
-    const seller = await verifySellerAuth(request);
-    if (!seller) {
+    const actor = await verifySellerOrAdmin(request);
+    if (!actor) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get all customers for this seller from the customers collection
-    const customersSnapshot = await adminDb
-      .collection('customers')
-      .where('sellerId', '==', seller.uid)
-      .orderBy('createdAt', 'desc')
-      .get();
+    const { searchParams } = new URL(request.url);
+    const requestedSellerId = searchParams.get('sellerId');
 
-    const customers = customersSnapshot.docs.map(doc => ({
+    let query: Query<DocumentData> = adminDb.collection('customers');
+
+    if (actor.role === 'seller') {
+      query = query.where('sellerId', '==', actor.uid);
+    } else if (actor.role === 'admin') {
+      if (requestedSellerId) {
+        query = query.where('sellerId', '==', requestedSellerId);
+      }
+    }
+
+    query = query.orderBy('createdAt', 'desc');
+
+    const customersSnapshot = await query.get();
+
+    const customers = customersSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt
+      createdAt:
+        doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt,
     }));
 
     return NextResponse.json({

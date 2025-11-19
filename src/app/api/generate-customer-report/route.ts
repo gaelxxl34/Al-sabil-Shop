@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer from 'puppeteer';
-import { format } from 'date-fns';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
 import { getBaseUrl } from '@/lib/env-validation';
 
 interface CustomerPaymentStatus {
@@ -46,16 +46,53 @@ interface CreditNoteDetail {
 
 export async function POST(request: NextRequest) {
   try {
-    const { customer, invoices, creditNotes, reportDate } = await request.json() as {
+    const { customer, invoices, creditNotes, reportDate, reportPeriod, selectedDate, customStartDate, customEndDate } = await request.json() as {
       customer: CustomerPaymentStatus;
       invoices: CustomerInvoiceDetail[];
       creditNotes: CreditNoteDetail[];
       reportDate: string;
+      reportPeriod?: 'daily' | 'weekly' | 'monthly' | 'annually' | 'custom';
+      selectedDate?: string;
+      customStartDate?: string;
+      customEndDate?: string;
     };
 
     if (!customer) {
       return NextResponse.json({ error: 'Customer data is required' }, { status: 400 });
     }
+
+    // Function to get date range text
+    const getDateRangeText = () => {
+      if (reportPeriod === 'custom' && customStartDate && customEndDate) {
+        const startDateObj = new Date(customStartDate);
+        const endDateObj = new Date(customEndDate);
+        return `${format(startDateObj, 'MMM dd, yyyy')} - ${format(endDateObj, 'MMM dd, yyyy')}`;
+      }
+      
+      if (selectedDate) {
+        const selectedDateObj = new Date(selectedDate);
+        
+        switch (reportPeriod) {
+          case 'daily':
+            return format(selectedDateObj, 'MMMM dd, yyyy');
+          case 'weekly':
+            const weekStart = startOfWeek(selectedDateObj, { weekStartsOn: 1 });
+            const weekEnd = endOfWeek(selectedDateObj, { weekStartsOn: 1 });
+            return `${format(weekStart, 'MMM dd')} - ${format(weekEnd, 'MMM dd, yyyy')}`;
+          case 'monthly':
+            return format(selectedDateObj, 'MMMM yyyy');
+          case 'annually':
+            return format(selectedDateObj, 'yyyy');
+          default:
+            return format(selectedDateObj, 'MMMM dd, yyyy');
+        }
+      }
+      
+      return 'All Time';
+    };
+
+    const periodLabel = reportPeriod ? reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1) : 'All Time';
+    const dateRangeText = getDateRangeText();
 
     // Calculate totals
     const totalInvoiced = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
@@ -448,6 +485,7 @@ export async function POST(request: NextRequest) {
                 <div class="report-subtitle">Account Activity Report</div>
                 <div style="font-size: 12px; color: #666; margin-top: 10px;">
                   <div><strong>Statement Date:</strong> ${format(new Date(reportDate), 'MMMM dd, yyyy')}</div>
+                  <div><strong>Period:</strong> ${periodLabel} (${dateRangeText})</div>
                   <div style="margin-top: 5px;">
                     <span class="account-status status-${customer.status}">
                       ${customer.status === 'good' ? 'Good Standing' : customer.status === 'warning' ? 'Payment Due' : 'Overdue'}
