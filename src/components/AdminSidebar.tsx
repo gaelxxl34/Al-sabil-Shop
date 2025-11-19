@@ -4,7 +4,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiSettings, FiLogOut, FiDollarSign, FiBarChart } from "react-icons/fi";
+import { FiHome, FiUsers, FiShoppingBag, FiBarChart2, FiLogOut, FiDollarSign, FiBarChart } from "react-icons/fi";
 import { useState, type ReactElement } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -41,7 +41,6 @@ const navLinks: NavLink[] = [
     icon: <FiBarChart className="w-5 h-5" />,
     aliases: ["/admin/reports"],
   },
-  { href: "/admin/settings", label: "Settings", icon: <FiSettings className="w-5 h-5" /> },
 ];
 
 export default function AdminSidebar({ onClose }: { onClose?: () => void }) {

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerHeader from '@/components/SellerHeader';
+import AdminHeader from '@/components/AdminHeader';
 import SellerGuard from '@/components/SellerGuard';
 import AdminSidebar from '@/components/AdminSidebar';
 import AdminSidebarDrawer from '@/components/AdminSidebarDrawer';
@@ -14,7 +15,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { orderApi, customerApi } from '@/lib/api-client';
 import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
-import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX, FiFileText, FiMenu } from 'react-icons/fi';
+import { FiPackage, FiCheckCircle, FiClock, FiXCircle, FiEye, FiDollarSign, FiTruck, FiAlertCircle, FiTrash2, FiX, FiFileText } from 'react-icons/fi';
 import DeliveryNote from '@/components/DeliveryNote';
 import Invoice from '@/components/Invoice';
 import { Skeleton } from '@/components/SkeletonLoader';
@@ -754,22 +755,6 @@ export default function SellerOrdersPage() {
     return <OrdersPageSkeleton showAdminView={isAdmin} />;
   }
 
-  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
-    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
-      <div className="px-4 py-3 flex items-center justify-between">
-        <button
-          onClick={onMenuClick}
-          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          aria-label="Open menu"
-        >
-          <FiMenu className="w-6 h-6" />
-        </button>
-        <div className="text-gray-900 font-semibold">Admin Orders</div>
-        <div className="w-6" />
-      </div>
-    </header>
-  );
-
   return (
     <SellerGuard allowedRoles={['seller', 'admin']}>
       <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
@@ -781,7 +766,7 @@ export default function SellerOrdersPage() {
 
       {/* Mobile Header */}
       {isAdmin ? (
-        <AdminMobileHeader onMenuClick={() => setSidebarOpen(true)} />
+        <AdminHeader onMenuClick={() => setSidebarOpen(true)} title="Admin Orders" />
       ) : (
         <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
       )}

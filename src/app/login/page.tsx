@@ -13,28 +13,33 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const router = useRouter();
   const { user, userData, loading, refreshAuth } = useAuth();
 
   // Check if user is already authenticated using our AuthProvider
   useEffect(() => {
+    if (redirecting) return;
     if (!loading && user && userData) {
+      setRedirecting(true);
       // User is already logged in, redirect to appropriate dashboard
+      let target = '/';
       switch (userData.role) {
         case 'admin':
-          router.push('/admin/dashboard');
+          target = '/admin/dashboard';
           break;
         case 'seller':
-          router.push('/seller/dashboard');
+          target = '/seller/dashboard';
           break;
         case 'customer':
-          router.push('/customer/dashboard');
+          target = '/customer/dashboard';
           break;
         default:
-          router.push('/');
+          target = '/';
       }
+      router.replace(target);
     }
-  }, [user, userData, loading, router]);
+  }, [user, userData, loading, router, redirecting]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -69,20 +74,22 @@ export default function LoginPage() {
       console.log('🔐 Login: Success! Redirecting to', data.role, 'dashboard');
       
       // Redirect based on user role
+      let target = '/';
       switch (data.role) {
         case 'admin':
-          router.push('/admin/dashboard');
+          target = '/admin/dashboard';
           break;
         case 'seller':
-          router.push('/seller/dashboard');
+          target = '/seller/dashboard';
           break;
         case 'customer':
-          router.push('/customer/dashboard');
+          target = '/customer/dashboard';
           break;
         default:
-          // Fallback for unknown roles
-          router.push('/');
+          target = '/';
       }
+      setRedirecting(true);
+      router.replace(target);
     } catch (err: unknown) {
       console.error('Login error:', err);
       
@@ -95,8 +102,12 @@ export default function LoginPage() {
   };
 
   // Show loading screen while checking auth state
-  if (loading) {
-    return <LoadingScreen message="Checking authentication..." />;
+  if (loading || redirecting) {
+    return (
+      <LoadingScreen
+        message={redirecting ? 'Redirecting to your dashboard...' : 'Checking authentication...'}
+      />
+    );
   }
 
   return (

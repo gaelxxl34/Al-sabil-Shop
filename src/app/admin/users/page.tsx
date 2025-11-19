@@ -6,9 +6,11 @@ import Link from "next/link";
 import { FiPlus, FiSearch, FiEdit, FiTrash2, FiUsers, FiUser, FiRefreshCw } from "react-icons/fi";
 import AdminSidebar from "@/components/AdminSidebar";
 import AdminSidebarDrawer from "@/components/AdminSidebarDrawer";
+import AdminHeader from "@/components/AdminHeader";
 import { SkeletonTable } from "@/components/SkeletonLoader";
 import AdminGuard from "@/components/AdminGuard";
 import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/components/AuthProvider";
 
 // Brand-aligned colors
 const BUTTON_PRIMARY = "bg-elegant-red-600 text-white hover:bg-elegant-red-700 shadow-lg";
@@ -25,6 +27,8 @@ interface User {
 }
 
 export default function AdminUsersPage() {
+  const { user } = useAuth();
+  const currentAdminId = user?.uid;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -116,6 +120,12 @@ export default function AdminUsersPage() {
 
   // Delete user function
   const handleDeleteUser = async (userId: string, userName: string, userRole: string) => {
+    if (currentAdminId && userId === currentAdminId) {
+      setError('You cannot delete the account currently in use.');
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
     let confirmMessage = `Are you sure you want to delete user "${userName}"?\n\n`;
     
     if (userRole === 'seller') {
@@ -208,26 +218,17 @@ export default function AdminUsersPage() {
     <AdminGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* Sidebar */}
-      <div className="hidden md:flex">
+      <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
         <AdminSidebar />
       </div>
 
-      {/* Mobile Sidebar Toggle */}
-      <button
-        className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-        onClick={() => setSidebarOpen(true)}
-        aria-label="Open sidebar"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+      <AdminHeader onMenuClick={() => setSidebarOpen(true)} title="User Management" />
 
       {/* Mobile Sidebar Drawer */}
       <AdminSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Main Content */}
-  <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-8">
+  <main className="flex-1 md:ml-64 w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
@@ -377,9 +378,14 @@ export default function AdminUsersPage() {
                             <FiEdit className="w-4 h-4" />
                           </Link>
                           <button
-                            className="p-2 text-red-700 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-200"
-                            title="Delete user"
-                            onClick={() => handleDeleteUser(user.id, user.displayName || user.email, user.role)}
+                            className={`p-2 rounded-lg transition-all duration-200 ${
+                              user.id === currentAdminId
+                                ? 'text-gray-400 cursor-not-allowed'
+                                : 'text-red-700 hover:text-red-700 hover:bg-red-50'
+                            }`}
+                            title={user.id === currentAdminId ? "You can't delete the account you're logged in with" : 'Delete user'}
+                            onClick={() => user.id !== currentAdminId && handleDeleteUser(user.id, user.displayName || user.email, user.role)}
+                            disabled={user.id === currentAdminId}
                           >
                             <FiTrash2 className="w-4 h-4" />
                           </button>

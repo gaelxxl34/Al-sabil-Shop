@@ -11,11 +11,11 @@ import {
   FiLoader,
   FiArrowLeft,
   FiDownload,
-  FiMenu,
 } from "react-icons/fi";
 import SellerSidebar from "@/components/SellerSidebar";
 import SellerSidebarDrawer from "@/components/SellerSidebarDrawer";
 import SellerHeader from "@/components/SellerHeader";
+import AdminHeader from "@/components/AdminHeader";
 import AdminSidebar from "@/components/AdminSidebar";
 import AdminSidebarDrawer from "@/components/AdminSidebarDrawer";
 import AdminGuard from "@/components/AdminGuard";
@@ -886,21 +886,6 @@ function ReportsPageContent() {
     { value: 'custom', label: 'Custom' },
   ];
 
-  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
-    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
-      <div className="px-4 py-3 flex items-center justify-between">
-        <button
-          onClick={onMenuClick}
-          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          aria-label="Open sidebar"
-        >
-          <FiMenu className="w-6 h-6" />
-        </button>
-        <div className="text-gray-900 font-semibold">Admin Reports</div>
-        <div className="w-6" />
-      </div>
-    </header>
-  );
 
   const highlightItems = reportData ? [
     {
@@ -1166,9 +1151,9 @@ function ReportsPageContent() {
       </div>
 
       {/* Mobile Header */}
-      {isAdmin ? (
-        <AdminMobileHeader onMenuClick={() => setSidebarOpen(true)} />
-      ) : (
+        {isAdmin ? (
+          <AdminHeader onMenuClick={() => setSidebarOpen(true)} title="Admin Reports" />
+        ) : (
         <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
       )}
 

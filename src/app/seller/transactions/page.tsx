@@ -4,9 +4,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
 import SellerHeader from '@/components/SellerHeader';
+import AdminHeader from '@/components/AdminHeader';
 import AdminSidebar from '@/components/AdminSidebar';
 import AdminSidebarDrawer from '@/components/AdminSidebarDrawer';
-import { FiDollarSign, FiFilter, FiX, FiUser, FiUsers, FiCheckCircle, FiPackage, FiTrash2, FiMenu } from 'react-icons/fi';
+import { FiDollarSign, FiFilter, FiX, FiUser, FiUsers, FiCheckCircle, FiPackage, FiTrash2 } from 'react-icons/fi';
 import { Transaction, CreateTransactionInput } from '@/types/transaction';
 import { Customer } from '@/types/customer';
 import { Order } from '@/types/cart';
@@ -595,22 +596,6 @@ function TransactionsContent() {
   const totalOutstanding = customerPaymentInfo.reduce((sum, info) => sum + info.totalOutstanding, 0);
   const totalCustomersWithOutstanding = customerPaymentInfo.filter(info => info.totalOutstanding > 0).length;
 
-  const AdminMobileHeader = ({ onMenuClick }: { onMenuClick: () => void }) => (
-    <header className="md:hidden bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
-      <div className="px-4 py-3 flex items-center justify-between">
-        <button
-          onClick={onMenuClick}
-          className="p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          aria-label="Open sidebar"
-        >
-          <FiMenu className="w-6 h-6" />
-        </button>
-        <div className="text-gray-900 font-semibold">Admin Transactions</div>
-        <div className="w-6" />
-      </div>
-    </header>
-  );
-
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-50">
       {/* Desktop Sidebar */}
@@ -620,7 +605,7 @@ function TransactionsContent() {
 
       {/* Mobile Header */}
       {isAdmin ? (
-        <AdminMobileHeader onMenuClick={() => setIsSidebarOpen(true)} />
+        <AdminHeader onMenuClick={() => setIsSidebarOpen(true)} title="Admin Transactions" />
       ) : (
         <SellerHeader onMenuClick={() => setIsSidebarOpen(true)} />
       )}

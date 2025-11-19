@@ -239,10 +239,14 @@ export async function DELETE(
     const userDoc = await adminDb.collection('users').doc(userId).get();
     const userData = userDoc.exists ? userDoc.data() : {};
 
-    // Only allow deletion of admin and seller accounts from admin panel
-    if (userData?.role && !['admin', 'seller'].includes(userData.role)) {
+    const normalizedRole = typeof userData?.role === 'string'
+      ? userData.role.toLowerCase()
+      : undefined;
+    const allowedRoles: Array<'admin' | 'seller' | 'customer'> = ['admin', 'seller', 'customer'];
+
+    if (normalizedRole && !allowedRoles.includes(normalizedRole as 'admin' | 'seller' | 'customer')) {
       return NextResponse.json(
-        { error: 'Only admin and seller accounts can be deleted from this panel' },
+        { error: 'This user type cannot be deleted from the admin panel.' },
         { status: 400 }
       );
     }
@@ -259,7 +263,7 @@ export async function DELETE(
       console.log(`✅ Deleted user document for ${userId}`);
 
       // Stage 2: If this is a seller, clean up related data
-      if (userData?.role === 'seller') {
+      if (normalizedRole === 'seller') {
         // Delete customers belonging to this seller
         try {
           const customersSnapshot = await adminDb
@@ -322,7 +326,7 @@ export async function DELETE(
       }
 
       // Stage 3: If this is a customer, clean up their data
-      if (userData?.role === 'customer') {
+      if (normalizedRole === 'customer') {
         // Delete customer profile if exists
         try {
           const customerDoc = await adminDb.collection('customers').doc(userId).get();

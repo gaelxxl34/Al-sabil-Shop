@@ -4,6 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
+import SellerHeader from '@/components/SellerHeader';
+import AdminHeader from '@/components/AdminHeader';
+import AdminSidebar from '@/components/AdminSidebar';
+import AdminSidebarDrawer from '@/components/AdminSidebarDrawer';
 import SellerGuard from '@/components/SellerGuard';
 import { useAuth } from '@/components/AuthProvider';
 import { orderApi, customerApi } from '@/lib/api-client';
@@ -67,8 +71,18 @@ export default function OrderDetailPage() {
   const { userData } = useAuth();
   const canManagePayments = userData?.role === 'admin';
   const canViewInvoices = userData?.role === 'admin';
+  const isAdmin = userData?.role === 'admin';
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const SidebarComponent = isAdmin ? AdminSidebar : SellerSidebar;
+  const SidebarDrawerComponent = isAdmin ? AdminSidebarDrawer : SellerSidebarDrawer;
+  const renderMobileHeader = () => (
+    isAdmin ? (
+      <AdminHeader onMenuClick={() => setSidebarOpen(true)} title="Admin Orders" />
+    ) : (
+      <SellerHeader onMenuClick={() => setSidebarOpen(true)} />
+    )
+  );
   const [order, setOrder] = useState<Order | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -384,8 +398,10 @@ export default function OrderDetailPage() {
       <SellerGuard allowedRoles={['seller', 'admin']}>
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
           <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-            <SellerSidebar />
+            <SidebarComponent />
           </div>
+          {renderMobileHeader()}
+          <SidebarDrawerComponent open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
           <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
             <div className="w-full max-w-6xl mx-auto px-4 py-8">
               <div className="animate-pulse">
@@ -411,8 +427,10 @@ export default function OrderDetailPage() {
       <SellerGuard allowedRoles={['seller', 'admin']}>
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
           <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-            <SellerSidebar />
+            <SidebarComponent />
           </div>
+          {renderMobileHeader()}
+          <SidebarDrawerComponent open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
           <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
             <div className="w-full max-w-6xl mx-auto px-4 py-8">
               <div className="text-center">
@@ -442,21 +460,12 @@ export default function OrderDetailPage() {
 
         {/* Sidebar */}
         <div className="hidden md:flex md:fixed md:left-0 md:top-0 md:h-full md:z-10">
-          <SellerSidebar />
+          <SidebarComponent />
         </div>
 
-        {/* Mobile Sidebar Toggle */}
-        <button
-          className="md:hidden fixed top-4 left-4 z-20 bg-gray-900 text-white p-3 rounded-lg shadow-lg hover:bg-gray-800 transition-all duration-200"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="Open sidebar"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
+        {renderMobileHeader()}
 
-        <SellerSidebarDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <SidebarDrawerComponent open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main Content */}
         <main className="flex-1 md:ml-64 overflow-y-auto min-h-screen">
