@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import CustomerHeader from '@/components/CustomerHeader';
 import CustomerPageSkeleton from '@/components/CustomerPageSkeleton';
@@ -11,6 +11,9 @@ import { Order } from '@/types/cart';
 import { Customer } from '@/types/customer';
 import { FiShoppingCart, FiEye, FiFileText, FiClock, FiCheck, FiX } from 'react-icons/fi';
 import Link from 'next/link';
+import { useToast } from '@/contexts/ToastContext';
+import { playNotificationSound } from '@/lib/sound-notifications';
+import { useOrderEvents } from '@/hooks/useOrderEvents';
 
 interface OrderStats {
   total: number;
@@ -91,6 +94,7 @@ const convertOrderItems = (order: Order) => {
 
 export default function CustomerOrders() {
   const { user, loading } = useAuth();
+  const { showToast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,13 +121,7 @@ export default function CustomerOrders() {
   // Auto refresh has been removed - users will need to manually refresh the page
   // or navigate away and back to see updates
 
-  useEffect(() => {
-    if (user) {
-      fetchOrders();
-    }
-  }, [user]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -144,7 +142,31 @@ export default function CustomerOrders() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  const handleCustomerOrderUpdated = useCallback(async (order: Order) => {
+    const orderNumber = formatOrderId(order.id);
+    const statusLabel = statusConfig[order.status as keyof typeof statusConfig]?.label || order.status;
+    showToast({
+      type: 'info',
+      title: 'Order Update',
+      message: `Order ${orderNumber} is now ${statusLabel}`,
+      duration: 6000,
+    });
+    void playNotificationSound('order-update');
+    await fetchOrders();
+  }, [fetchOrders, showToast]);
+
+  useOrderEvents({
+    enabled: !!user,
+    onOrderUpdated: handleCustomerOrderUpdated,
+  });
+
+  useEffect(() => {
+    if (user) {
+      fetchOrders();
+    }
+  }, [fetchOrders, user]);
 
   const handleViewInvoice = async (order: Order) => {
     try {

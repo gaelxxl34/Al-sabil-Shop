@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import SellerSidebar from '@/components/SellerSidebar';
 import SellerSidebarDrawer from '@/components/SellerSidebarDrawer';
@@ -18,6 +19,8 @@ import DeliveryNote from '@/components/DeliveryNote';
 import Invoice from '@/components/Invoice';
 import { Skeleton } from '@/components/SkeletonLoader';
 import { useToast } from '@/contexts/ToastContext';
+import { playNotificationSound } from '@/lib/sound-notifications';
+import { useOrderEvents } from '@/hooks/useOrderEvents';
 
 type OrderStatus = 'pending' | 'confirmed' | 'prepared' | 'delivered' | 'cancelled';
 
@@ -99,6 +102,7 @@ export default function SellerOrdersPage() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const canManagePayments = userData?.role === 'admin';
   const isAdmin = userData?.role === 'admin';
+  const isSeller = userData?.role === 'seller';
   
   // Delete confirmation modal state
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -123,7 +127,7 @@ export default function SellerOrdersPage() {
 
   const hasFetchedInitialRef = useRef(false); // Prevent duplicate initial fetch (e.g. React Strict Mode)
 
-  const fetchOrders = async (forceRefresh = false) => {
+  const fetchOrders = useCallback(async (forceRefresh = false) => {
     // Only apply the initial fetch guard if this is not a forced refresh
     if (!forceRefresh && hasFetchedInitialRef.current) return;
     
@@ -187,7 +191,7 @@ export default function SellerOrdersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user, userData?.role]);
 
   // Only fetch after we know we have a logged-in seller. This avoids a race where
   // the SellerGuard redirects (causing the fetch to be aborted => TypeError: Failed to fetch).
@@ -199,8 +203,7 @@ export default function SellerOrdersPage() {
     console.log('🔍 Orders page useEffect triggered:', { 
       user: !!user, 
       userData: userData?.role, 
-      authLoading, 
-      isLoading 
+      authLoading
     });
     
     // Wait for auth to complete loading
@@ -228,19 +231,19 @@ export default function SellerOrdersPage() {
     
     console.log('✅ Orders page: conditions met, fetching orders...');
     fetchOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, userData, authLoading]);
+  }, [authLoading, fetchOrders, user, userData]);
 
   // If user data loaded and it's NOT a seller, let SellerGuard handle redirect without firing fetch.
 
-  const showToastNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToastNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     showToast({
       type,
       title: type === 'error' ? 'Error' : type === 'success' ? 'Success' : 'Update',
       message,
       duration: 5000
     });
-  };
+  }, [showToast]);
+
 
   const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
     try {
@@ -402,6 +405,29 @@ export default function SellerOrdersPage() {
     return `#${orderId.slice(-8).toUpperCase()}`;
   };
 
+  const handleRemoteOrderCreated = useCallback(async (order: Order) => {
+    const orderNumber = formatOrderId(order.id);
+    showToastNotification(`New order received ${orderNumber}`, 'info');
+    void playNotificationSound('order-update');
+    await fetchOrders(true);
+  }, [fetchOrders, showToastNotification]);
+
+  const handleRemoteOrderUpdated = useCallback(async (order: Order) => {
+    const orderNumber = formatOrderId(order.id);
+    const statusLabel = statusConfig[order.status].label;
+    showToastNotification(`Order ${orderNumber} updated to ${statusLabel}`, 'info');
+    void playNotificationSound('order-update');
+    await fetchOrders(true);
+  }, [fetchOrders, showToastNotification]);
+
+  const canListenToOrderStream = !!user && !!userData && ['seller', 'admin'].includes(userData.role as 'seller' | 'admin');
+
+  useOrderEvents({
+    enabled: canListenToOrderStream,
+    onOrderCreated: handleRemoteOrderCreated,
+    onOrderUpdated: handleRemoteOrderUpdated,
+  });
+
   const generateDeliveryNoteNumber = (order: Order) => {
     const date = new Date(order.createdAt);
     const year = date.getFullYear();
@@ -424,14 +450,101 @@ export default function SellerOrdersPage() {
   };
 
   const openInvoice = (order: Order) => {
+    if (!isAdmin) return;
     setSelectedOrderForDocument(order);
     setShowInvoiceModal(true);
   };
 
   const getAvailableActions = (order: Order) => {
-    const actions = [];
+    const actions: ReactNode[] = [];
+
+    if (isSeller) {
+      actions.push(
+        <Link
+          key="view"
+          href={`/seller/orders/${order.id}`}
+          className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        >
+          <FiEye className="inline mr-1" />
+          View
+        </Link>
+      );
+
+      if (order.status === 'prepared' || order.status === 'delivered') {
+        actions.push(
+          <button
+            key="deliveryNote"
+            onClick={() => openDeliveryNote(order)}
+            className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+            title="View/Print Delivery Note"
+          >
+            <FiFileText className="inline mr-1" />
+            Delivery Note
+          </button>
+        );
+      }
+
+      switch (order.status) {
+        case 'pending':
+          actions.push(
+            <button
+              key="confirm"
+              onClick={() => handleStatusChange(order.id, 'confirmed')}
+              className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+            >
+              Confirm
+            </button>
+          );
+          actions.push(
+            <button
+              key="cancel"
+              onClick={() => handleStatusChange(order.id, 'cancelled')}
+              className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Cancel
+            </button>
+          );
+          break;
+        case 'confirmed':
+          actions.push(
+            <button
+              key="prepare"
+              onClick={() => handleStatusChange(order.id, 'prepared')}
+              className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+            >
+              Mark Prepared
+            </button>
+          );
+          break;
+        case 'prepared':
+          actions.push(
+            <button
+              key="deliver"
+              onClick={() => handleStatusChange(order.id, 'delivered')}
+              className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+            >
+              Mark Delivered
+            </button>
+          );
+          break;
+      }
+
+      actions.push(
+        <button
+          key="delete"
+          onClick={() => handleDeleteOrder(order.id, formatOrderId(order.id))}
+          className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+          title="Delete order"
+        >
+          <FiTrash2 className="inline mr-1" />
+          Delete
+        </button>
+      );
+
+      return actions;
+    }
     
-    // Add view details button for all orders
+    // Admin-only actions start here (view, manage docs, status, payments)
     actions.push(
       <Link
         key="view"
@@ -457,17 +570,19 @@ export default function SellerOrdersPage() {
         </button>
       );
 
-      actions.push(
-        <button
-          key="invoice"
-          onClick={() => openInvoice(order)}
-          className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-          title="View/Print Invoice"
-        >
-          <FiDollarSign className="inline mr-1" />
-          Invoice
-        </button>
-      );
+      if (isAdmin) {
+        actions.push(
+          <button
+            key="invoice"
+            onClick={() => openInvoice(order)}
+            className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+            title="View/Print Invoice"
+          >
+            <FiDollarSign className="inline mr-1" />
+            Invoice
+          </button>
+        );
+      }
     }
 
     switch (order.status) {
@@ -1008,7 +1123,7 @@ export default function SellerOrdersPage() {
       )}
 
       {/* Invoice Modal */}
-      {showInvoiceModal && selectedOrderForDocument && (
+      {isAdmin && showInvoiceModal && selectedOrderForDocument && (
         <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-lg max-w-4xl w-full my-8 shadow-2xl">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">

@@ -1,6 +1,7 @@
 // src/app/api/orders/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { emitOrderEvent } from '@/lib/order-events';
 import { Order, OrderItem } from '@/types/cart';
 import { Query, DocumentData } from 'firebase-admin/firestore';
 
@@ -217,6 +218,12 @@ export async function POST(request: NextRequest) {
     };
 
     // Note: Future feature for notifications can fetch seller data here
+
+    emitOrderEvent({
+      type: 'order.created',
+      order: createdOrder,
+      timestamp: new Date().toISOString(),
+    });
 
     return NextResponse.json({
       success: true,

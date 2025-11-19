@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { emitOrderEvent } from '@/lib/order-events';
 import { Order, PaymentRecord } from '@/types/cart';
 
 export async function GET(
@@ -233,14 +234,11 @@ export async function PUT(
     const updatedOrderDoc = await adminDb.collection('orders').doc(orderId).get();
     const updatedOrder = { id: updatedOrderDoc.id, ...updatedOrderDoc.data() } as Order;
 
-    // Send real-time notifications for status updates
-    try {
-      // Note: Future feature for real-time notifications can fetch customer/seller data here
-
-    } catch (error) {
-      console.error('Error fetching related data:', error);
-      // Don't fail the update if fetching customer/seller data fails
-    }
+    emitOrderEvent({
+      type: 'order.updated',
+      order: updatedOrder,
+      timestamp: new Date().toISOString(),
+    });
 
     return NextResponse.json({
       success: true,
